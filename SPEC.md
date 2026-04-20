@@ -316,9 +316,9 @@ logos/
 - [x] Full-text search within notes (client-side filter + backend search_notes command)
 
 ### Phase 7 — AI Integration
-- [ ] Provider abstraction layer (see TASKS.md Task 1)
-- [ ] Settings UI for API keys
-- [ ] Context-aware AI chat on selected verse(s)
+- [x] Provider abstraction layer (see TASKS.md Task 1)
+- [x] Settings UI for API keys
+- [x] Context-aware AI chat on selected verse(s)
 - [ ] Suggested related passages
 - [ ] Translation explanations for original language words
 
@@ -326,7 +326,8 @@ logos/
 - [x] Keyboard shortcuts (see TASKS.md Task 3)
 - [x] Export notes/bookmarks (see TASKS.md Task 3)
 - [ ] Performance optimization
-- [ ] App icon, installer, auto-updates
+- [x] App icon, installer (custom SVG-based icons generated via generate_icon.py)
+- [x] Auto-updates configured (tauri-plugin-updater = "2" in Cargo.toml, placeholder endpoint/pubkey in tauri.conf.json; DISABLED in current dev env due to container build restrictions — re-enable in production build)
 
 ## Verification Criteria
 

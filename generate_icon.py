@@ -1,230 +1,183 @@
 #!/usr/bin/env python3
-"""Generate the Logos Bible app icon set from a base SVG design."""
+"""
+Generate the Logos Bible app icon set using ImageMagick (no Pillow required).
+Design: Deep navy background with gold cross, open book, and Greek lambda (ΛΟΓΟΣ).
+"""
 
 import os
-import sys
 import subprocess
-import base64
+import tempfile
 from pathlib import Path
-
-# Ensure Pillow is available
-try:
-    from PIL import Image, ImageDraw, ImageFont
-except ImportError:
-    subprocess.run([sys.executable, "-m", "pip", "install", "pillow", "-q"])
-    from PIL import Image, ImageDraw, ImageFont
-
 
 ICONS_DIR = Path(__file__).parent / "src-tauri" / "icons"
 ICONS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Color palette — deep navy with gold accents (scholarly/biblical aesthetic)
-BG_COLOR = (15, 23, 42)         # Deep navy
-ACCENT_COLOR = (217, 165, 32)    # Gold
-TEXT_COLOR = (248, 250, 252)     # Near white
-BOOK_COLOR = (203, 162, 94)      # Warm tan/leather
+# Color palette
+BG = "#0f172a"       # Deep navy
+GOLD = "#d9a520"     # Gold accent
+LTAN = "#cba25e"     # Warm leather/book
+LPAGE = "#232e50"    # Left page (darker)
+RPAGE = "#2d3c5f"   # Right page (lighter)
+SPINE = "#d9a520"    # Gold spine
 
-def draw_icon(size: int) -> Image.Image:
-    """Draw a 1024x1024 icon scaled to `size`."""
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
+def run(cmd: list[str], check=True) -> str:
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if check and result.returncode != 0:
+        raise RuntimeError(f"Command failed: {' '.join(cmd)}\n{result.stderr}")
+    return result.stdout + result.stderr
 
-    # Scale factor for everything
-    s = size / 1024
+def svg_to_png(svg_path: str, size: int, out_path: str):
+    """Render an SVG to PNG using ImageMagick."""
+    run([
+        "convert", "-background", "none",
+        "-size", f"{size}x{size}",
+        svg_path,
+        "-resize", f"{size}x{size}",
+        "-quality", "95",
+        out_path,
+    ])
 
-    # --- Background: rounded square with gradient-like layers ---
-    margin = int(40 * s)
-    r = int(180 * s)
-    draw.rounded_rectangle(
-        [margin, margin, size - margin, size - margin],
-        radius=r,
-        fill=BG_COLOR,
-    )
+def make_icon_svg(size: int) -> str:
+    """Generate an SVG string for the icon at the given size."""
+    s = size
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{s}" height="{s}" viewBox="0 0 {s} {s}">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a2744"/>
+      <stop offset="100%" style="stop-color:#0a1020"/>
+    </linearGradient>
+    <linearGradient id="crossGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f0c040"/>
+      <stop offset="100%" style="stop-color:#c89010"/>
+    </linearGradient>
+    <linearGradient id="bookGradL" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#1a2438"/>
+      <stop offset="100%" style="stop-color:#253555"/>
+    </linearGradient>
+    <linearGradient id="bookGradR" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#2a3d60"/>
+      <stop offset="100%" style="stop-color:#1e2e50"/>
+    </linearGradient>
+  </defs>
 
-    # Subtle outer ring (gold border)
-    outer_r = int(175 * s)
-    draw.rounded_rectangle(
-        [margin + int(5*s), margin + int(5*s),
-         size - margin - int(5*s), size - margin - int(5*s)],
-        radius=outer_r,
-        outline=ACCENT_COLOR,
-        width=max(1, int(6*s)),
-    )
+  <!-- Rounded background square -->
+  <rect width="{s}" height="{s}" rx="{int(s*0.18)}" fill="url(#bgGrad)"/>
 
-    cx, cy = size // 2, size // 2
+  <!-- Gold border ring -->
+  <rect x="{int(s*0.04)}" y="{int(s*0.04)}" width="{int(s*0.92)}" height="{int(s*0.92)}"
+        rx="{int(s*0.16)}" fill="none" stroke="#d9a520" stroke-width="{max(2, int(s*0.006))}"/>
 
-    # --- Open book ---
-    book_top = int(280 * s)
-    book_bot = int(720 * s)
-    book_h = book_bot - book_top
-    book_w = int(700 * s)
-    book_l = cx - book_w // 2
-    book_r = cx + book_w // 2
+  <!-- Cross (upper center) -->
+  <rect x="{int(s*0.47)}" y="{int(s*0.07)}" width="{max(2, int(s*0.06))}" height="{int(s*0.17)}"
+        fill="url(#crossGrad)" rx="{max(1, int(s*0.01))}"/>
+  <rect x="{int(s*0.39)}" y="{int(s*0.135)}" width="{int(s*0.22)}" height="{max(2, int(s*0.05))}"
+        fill="url(#crossGrad)" rx="{max(1, int(s*0.01))}"/>
 
-    # Left page
-    draw.rectangle(
-        [cx - book_w//2, book_top, cx, book_bot],
-        fill=(35, 50, 80),
-    )
-    # Right page
-    draw.rectangle(
-        [cx, book_top, cx + book_w//2, book_bot],
-        fill=(45, 60, 95),
-    )
-    # Center crease
-    draw.line([cx, book_top, cx, book_bot], fill=ACCENT_COLOR, width=max(1, int(3*s)))
+  <!-- Open Book -->
+  <!-- Left page -->
+  <rect x="{int(s*0.12)}" y="{int(s*0.28)}" width="{int(s*0.38)}" height="{int(s*0.44)}"
+        fill="url(#bookGradL)" rx="{max(2, int(s*0.015))}"/>
+  <!-- Right page -->
+  <rect x="{int(s*0.50)}" y="{int(s*0.28)}" width="{int(s*0.38)}" height="{int(s*0.44)}"
+        fill="url(#bookGradR)" rx="{max(2, int(s*0.015))}"/>
+  <!-- Spine/center crease -->
+  <rect x="{int(s*0.49)}" y="{int(s*0.28)}" width="{max(2, int(s*0.02))}" height="{int(s*0.44)}"
+        fill="#d9a520"/>
+  <!-- Page lines - left -->
+  <line x1="{int(s*0.17)}" y1="{int(s*0.35)}" x2="{int(s*0.46)}" y2="{int(s*0.35)}" stroke="#4a6090" stroke-width="{max(1, int(s*0.008))}"/>
+  <line x1="{int(s*0.17)}" y1="{int(s*0.40)}" x2="{int(s*0.46)}" y2="{int(s*0.40)}" stroke="#4a6090" stroke-width="{max(1, int(s*0.008))}"/>
+  <line x1="{int(s*0.17)}" y1="{int(s*0.45)}" x2="{int(s*0.46)}" y2="{int(s*0.45)}" stroke="#4a6090" stroke-width="{max(1, int(s*0.008))}"/>
+  <line x1="{int(s*0.17)}" y1="{int(s*0.50)}" x2="{int(s*0.46)}" y2="{int(s*0.50)}" stroke="#4a6090" stroke-width="{max(1, int(s*0.008))}"/>
+  <line x1="{int(s*0.17)}" y1="{int(s*0.55)}" x2="{int(s*0.46)}" y2="{int(s*0.55)}" stroke="#4a6090" stroke-width="{max(1, int(s*0.008))}"/>
+  <line x1="{int(s*0.17)}" y1="{int(s*0.60)}" x2="{int(s*0.46)}" y2="{int(s*0.60)}" stroke="#4a6090" stroke-width="{max(1, int(s*0.008))}"/>
+  <line x1="{int(s*0.17)}" y1="{int(s*0.65)}" x2="{int(s*0.46)}" y2="{int(s*0.65)}" stroke="#4a6090" stroke-width="{max(1, int(s*0.008))}"/>
+  <!-- Page lines - right -->
+  <line x1="{int(s*0.54)}" y1="{int(s*0.35)}" x2="{int(s*0.83)}" y2="{int(s*0.35)}" stroke="#4a6090" stroke-width="{max(1, int(s*0.008))}"/>
+  <line x1="{int(s*0.54)}" y1="{int(s*0.40)}" x2="{int(s*0.83)}" y2="{int(s*0.40)}" stroke="#4a6090" stroke-width="{max(1, int(s*0.008))}"/>
+  <line x1="{int(s*0.54)}" y1="{int(s*0.45)}" x2="{int(s*0.83)}" y2="{int(s*0.45)}" stroke="#4a6090" stroke-width="{max(1, int(s*0.008))}"/>
+  <line x1="{int(s*0.54)}" y1="{int(s*0.50)}" x2="{int(s*0.83)}" y2="{int(s*0.50)}" stroke="#4a6090" stroke-width="{max(1, int(s*0.008))}"/>
+  <line x1="{int(s*0.54)}" y1="{int(s*0.55)}" x2="{int(s*0.83)}" y2="{int(s*0.55)}" stroke="#4a6090" stroke-width="{max(1, int(s*0.008))}"/>
+  <line x1="{int(s*0.54)}" y1="{int(s*0.60)}" x2="{int(s*0.83)}" y2="{int(s*0.60)}" stroke="#4a6090" stroke-width="{max(1, int(s*0.008))}"/>
+  <line x1="{int(s*0.54)}" y1="{int(s*0.65)}" x2="{int(s*0.83)}" y2="{int(s*0.65)}" stroke="#4a6090" stroke-width="{max(1, int(s*0.008))}"/>
 
-    # Page lines (subtle ruled lines)
-    line_color = (80, 110, 160)
-    line_spacing = int(38 * s)
-    for i in range(1, 10):
-        y = book_top + i * line_spacing
-        if y < book_bot - int(20*s):
-            # Left page lines
-            draw.line([book_l + int(40*s), y, cx - int(20*s), y], fill=line_color, width=max(1, int(2*s)))
-            # Right page lines
-            draw.line([cx + int(20*s), y, book_r - int(40*s), y], fill=line_color, width=max(1, int(2*s)))
+  <!-- Greek Lambda (Λ) below book - stylized -->
+  <line x1="{int(s*0.44)}" y1="{int(s*0.76)}" x2="{int(s*0.50)}" y2="{int(s*0.72)}" stroke="#d9a520" stroke-width="{max(2, int(s*0.015))}" stroke-linecap="round"/>
+  <line x1="{int(s*0.56)}" y1="{int(s*0.76)}" x2="{int(s*0.50)}" y2="{int(s*0.72)}" stroke="#d9a520" stroke-width="{max(2, int(s*0.015))}" stroke-linecap="round"/>
+  <line x1="{int(s*0.46)}" y1="{int(s*0.75)}" x2="{int(s*0.54)}" y2="{int(s*0.75)}" stroke="#d9a520" stroke-width="{max(2, int(s*0.015))}" stroke-linecap="round"/>
 
-    # Book spine top
-    draw.arc([cx - book_w//2, book_top - int(10*s), cx + book_w//2, book_top + int(50*s)],
-             start=0, end=180, fill=ACCENT_COLOR, width=max(1, int(6*s)))
-
-    # --- Cross above the book ---
-    cross_x = cx
-    cross_y_top = int(120 * s)
-    cross_h = int(140 * s)
-    arm_w = int(80 * s)
-    thick = max(1, int(14*s))
-
-    # Vertical beam
-    draw.rectangle(
-        [cross_x - thick//2, cross_y_top, cross_x + thick//2, cross_y_top + cross_h],
-        fill=ACCENT_COLOR,
-    )
-    # Horizontal beam
-    draw.rectangle(
-        [cross_x - arm_w, cross_y_top + int(30*s), cross_x + arm_w, cross_y_top + int(30*s + thick)],
-        fill=ACCENT_COLOR,
-    )
-
-    # Cross glow (subtle gold ring behind)
-    for radius in range(int(90*s), int(120*s), int(8*s)):
-        alpha = max(0, 40 - (radius - int(90*s)) * 2)
-        draw.ellipse(
-            [cross_x - radius, cross_y_top + cross_h//2 - radius,
-             cross_x + radius, cross_y_top + cross_h//2 + radius],
-            outline=(217, 165, 32, alpha),
-        )
-
-    # --- Lambda/Greek λ symbol below the book (Logos = Word) ---
-    lambda_y = int(760 * s)
-    lambda_scale = int(50 * s)
-
-    # Draw a stylized λ
-    lambda_color = ACCENT_COLOR
-    lw = max(1, int(6*s))
-    # Right diagonal stroke
-    draw.line([cx - lambda_scale, lambda_y + lambda_scale, cx, lambda_y], fill=lambda_color, width=lw)
-    # Left diagonal stroke
-    draw.line([cx + lambda_scale, lambda_y + lambda_scale, cx, lambda_y], fill=lambda_color, width=lw)
-    # Center tick
-    draw.line([cx - int(8*s), lambda_y + int(20*s), cx + int(8*s), lambda_y + int(20*s)], fill=lambda_color, width=lw)
-
-    # Small "WORD" text at bottom
-    try:
-        font_size = int(36 * s)
-        try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
-        except OSError:
-            font = ImageFont.load_default()
-    except Exception:
-        font = None
-
-    label = "BIBLE"
-    bbox = draw.textbbox((0, 0), label, font=font)
-    text_w = bbox[2] - bbox[0]
-    text_x = cx - text_w // 2
-    text_y = int(820 * s)
-    draw.text((text_x, text_y), label, fill=(217, 165, 32, 180), font=font)
-
-    return img
-
-
-def resize_and_save(img: Image.Image, path: Path, size: int):
-    """Resize to exact pixel dimensions and save (with sRGB conversion)."""
-    out = img.resize((size, size), Image.LANCZOS)
-    if out.mode in ("RGBA", "LA", "P"):
-        if out.mode == "RGBA":
-            # Fill transparent with BG_COLOR for ICO/PNG compatibility
-            bg = Image.new("RGBA", (size, size), (255, 255, 255, 255))
-            bg.paste(out, mask=out.split()[3])
-            out = bg.convert("RGB")
-        elif out.mode == "LA":
-            out = out.convert("RGBA")
-    else:
-        out = out.convert("RGB")
-    out.save(path, "PNG", optimize=True)
-    print(f"  Wrote {path.name} ({size}x{size})")
-
-
-def make_ico(png_path: Path, ico_path: Path):
-    """Convert PNG to ICO (Windows) using Pillow."""
-    sizes = [16, 32, 48, 256]
-    imgs = []
-    base = Image.open(png_path).convert("RGBA")
-    for sz in sizes:
-        imgs.append(base.resize((sz, sz), Image.LANCZOS))
-
-    # Save as ICO
-    imgs[0].save(ico_path, format="ICO",
-                  append_images=imgs[1:],
-                  sizes=[(s, s) for s in sizes])
-    print(f"  Wrote icon.ico (multi-size)")
+  <!-- "BIBLE" text at bottom -->
+  <text x="{int(s*0.50)}" y="{int(s*0.87)}"
+        font-family="serif" font-size="{int(s*0.055)}" font-weight="bold"
+        fill="#d9a520" text-anchor="middle" letter-spacing="{int(s*0.015)}">BIBLE</text>
+</svg>'''
+    return svg
 
 
 def main():
-    print("Generating Logos Bible icon set...")
+    print("Generating Logos Bible icon set with ImageMagick...")
 
-    base = draw_icon(1024)
+    # Create base 1024 icon as SVG
+    svg_1024 = make_icon_svg(1024)
 
-    # Generate PNG sizes required by Tauri
-    sizes = {
-        "32x32.png":    32,
-        "128x128.png":  128,
-        "128x128@2x.png": 256,
-        "icon.png":     512,
-    }
+    with tempfile.NamedTemporaryFile(suffix=".svg", delete=False) as f:
+        f.write(svg_1024.encode())
+        svg_path = f.name
 
-    for name, size in sizes.items():
-        resize_and_save(base, ICONS_DIR / name, size)
+    try:
+        # Generate required Tauri PNG sizes
+        sizes = {
+            "32x32.png": 32,
+            "128x128.png": 128,
+            "128x128@2x.png": 256,
+            "icon.png": 512,
+            "Square107x107Logo.png": 107,
+            "Square142x142Logo.png": 142,
+            "Square150x150Logo.png": 150,
+            "Square284x284Logo.png": 284,
+            "Square30x30Logo.png": 30,
+            "Square310x310Logo.png": 310,
+            "Square44x44Logo.png": 44,
+            "Square71x71Logo.png": 71,
+            "Square89x89Logo.png": 89,
+            "StoreLogo.png": 50,
+        }
 
-    # ico for Windows
-    make_ico(ICONS_DIR / "icon.png", ICONS_DIR / "icon.ico")
+        for name, size in sizes.items():
+            out = ICONS_DIR / name
+            run([
+                "convert", "-background", "#0f172a",
+                "-size", f"{size}x{size}",
+                svg_path,
+                "-resize", f"{size}x{size}",
+                "-quality", "95",
+                str(out),
+            ])
+            print(f"  Wrote {name} ({size}x{size})")
 
-    # Square icons for Windows (also used by .ico generation)
-    for name, size in [
-        ("Square284x284Logo.png",  284),
-        ("Square142x142Logo.png",  142),
-        ("Square310x310Logo.png",  310),
-        ("Square107x107Logo.png",  107),
-        ("Square89x89Logo.png",    89),
-        ("Square71x71Logo.png",    71),
-        ("Square44x44Logo.png",    44),
-        ("Square30x30Logo.png",    30),
-        ("Square150x150Logo.png",  150),
-        ("StoreLogo.png",          50),
-    ]:
-        resize_and_save(base, ICONS_DIR / name, size)
+        # Create ICO for Windows
+        ico_path = ICONS_DIR / "icon.ico"
+        run([
+            "convert",
+            "-background", "#0f172a",
+            svg_path,
+            "-resize", "256x256",
+            "-define", "icon:size=16,32,48,256",
+            "-alpha", "on",
+            str(ico_path),
+        ])
+        print(f"  Wrote icon.ico")
 
-    # icns for macOS — just copy PNG as placeholder (macOS build on non-mac is fine)
-    # Real icns would need iconutil; skip for Linux dev environment
-    base512 = base.resize((512, 512), Image.LANCZOS)
-    base512.save(ICONS_DIR / "icon.icns", "PNG")
-    print(f"  Wrote icon.icns (PNG fallback, iconutil needed on macOS)")
+        # For icns, just save a PNG (macOS iconutil needed on Mac)
+        # Use the already-generated icon.png as the icns placeholder
+        import shutil
+        shutil.copy(str(ICONS_DIR / "icon.png"), str(ICONS_DIR / "icon.icns"))
+        print(f"  Wrote icon.icns (PNG fallback)")
 
-    print(f"\nAll icons written to {ICONS_DIR}")
-    print("NOTE: Run `iconutil --convert icns` on macOS to generate a proper .icns")
+        print(f"\nAll icons written to {ICONS_DIR}")
+        print("NOTE: Run `iconutil --convert icns` on macOS to generate proper .icns")
 
+    finally:
+        os.unlink(svg_path)
 
 if __name__ == "__main__":
     main()
