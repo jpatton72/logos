@@ -1,0 +1,1060 @@
+use rusqlite::{params, Result as SqliteResult};
+use serde::{Deserialize, Serialize};
+use tracing::info;
+
+use crate::database::Database;
+
+// ============================================================================
+// Data Types
+// ============================================================================
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Book {
+    pub id: i64,
+    pub abbreviation: String,
+    pub full_name: String,
+    pub testament: String,
+    pub genre: String,
+    pub order_index: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Translation {
+    pub id: i64,
+    pub name: String,
+    pub abbreviation: String,
+    pub language: String,
+    pub source_url: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Verse {
+    pub id: i64,
+    pub book_id: i64,
+    pub book_abbreviation: String,
+    pub chapter: i32,
+    pub verse_num: i32,
+    pub translation_id: i64,
+    pub text: String,
+    #[serde(default)]
+    pub translation_abbreviation: Option<String>,
+    #[serde(skip)]
+    pub word_mappings: Option<Vec<WordMapping>>,
+}
+
+impl Default for Verse {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            book_id: 0,
+            book_abbreviation: String::new(),
+            chapter: 0,
+            verse_num: 0,
+            translation_id: 0,
+            text: String::new(),
+            translation_abbreviation: None,
+            word_mappings: None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct VerseGroup {
+    pub chapter: i32,
+    pub verse_num: i32,
+    pub verses: Vec<Verse>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Bookmark {
+    pub id: i64,
+    pub verse_id: i64,
+    pub label: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BookmarkWithVerse {
+    pub id: i64,
+    pub verse_id: i64,
+    pub label: Option<String>,
+    pub created_at: String,
+    pub book_abbreviation: String,
+    pub chapter: i32,
+    pub verse_num: i32,
+    pub text: String,
+    pub translation_abbreviation: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Note {
+    pub id: i64,
+    pub verse_id: Option<i64>,
+    pub title: Option<String>,
+    pub content: String,
+    pub tags: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StrongsGreek {
+    pub id: String,
+    pub word: String,
+    pub transliteration: String,
+    pub definition: String,
+    pub pronunciation: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StrongsHebrew {
+    pub id: String,
+    pub word: String,
+    pub ketiv_qere: Option<String>,
+    pub transliteration: String,
+    pub definition: String,
+    pub pronunciation: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WordMapping {
+    pub id: i64,
+    pub verse_id: i64,
+    pub word_index: i32,
+    pub strongs_id: String,
+    pub original_word: String,
+    pub lemma: Option<String>,
+    pub morphology: Option<String>,
+    pub language: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ReadingProgressEntry {
+    pub book_id: i64,
+    pub chapter: i32,
+    pub last_read_at: String,
+}
+
+/// A Ketiv/Qere annotation for a verse. The Masoretic text writes "ketiv" (written)
+/// but the tradition reads "qere" (read). Multiple K/Q pairs may exist in one verse.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct KetivQere {
+    pub ketiv: String,
+    pub qere: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TermResult {
+    pub term: String,
+    pub verse_count: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SearchResult {
+    pub id: i64,
+    pub book_abbreviation: String,
+    pub chapter: i32,
+    pub verse_num: i32,
+    pub text: String,
+    pub translation_abbreviation: String,
+    pub rank: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CompareResult {
+    pub book_abbreviation: String,
+    pub chapter: i32,
+    pub verse_num: i32,
+    pub translations: Vec<Verse>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct IngestResult {
+    pub terms_indexed: i64,
+    pub unique_terms: i64,
+    pub already_populated: bool,
+}
+
+// ============================================================================
+// Book Queries
+// ============================================================================
+
+pub fn get_all_books(db: &Database) -> SqliteResult<Vec<Book>> {
+    let conn = db.conn.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT id, abbreviation, full_name, testament, genre, order_index 
+         FROM books ORDER BY order_index"
+    )?;
+
+    let books = stmt.query_map([], |row| {
+        Ok(Book {
+            id: row.get(0)?,
+            abbreviation: row.get(1)?,
+            full_name: row.get(2)?,
+            testament: row.get(3)?,
+            genre: row.get(4)?,
+            order_index: row.get(5)?,
+        })
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    Ok(books)
+}
+
+pub fn get_book_by_abbreviation(db: &Database, abbreviation: &str) -> SqliteResult<Option<Book>> {
+    let conn = db.conn.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT id, abbreviation, full_name, testament, genre, order_index 
+         FROM books WHERE abbreviation = ?"
+    )?;
+
+    let mut rows = stmt.query(params![abbreviation])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(Book {
+            id: row.get(0)?,
+            abbreviation: row.get(1)?,
+            full_name: row.get(2)?,
+            testament: row.get(3)?,
+            genre: row.get(4)?,
+            order_index: row.get(5)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+// ============================================================================
+// Translation Queries
+// ============================================================================
+
+pub fn get_all_translations(db: &Database) -> SqliteResult<Vec<Translation>> {
+    let conn = db.conn.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT id, name, abbreviation, language, source_url, notes FROM translations"
+    )?;
+
+    let translations = stmt.query_map([], |row| {
+        Ok(Translation {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            abbreviation: row.get(2)?,
+            language: row.get(3)?,
+            source_url: row.get(4)?,
+            notes: row.get(5)?,
+        })
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    Ok(translations)
+}
+
+pub fn get_translation_by_abbreviation(db: &Database, abbreviation: &str) -> SqliteResult<Option<Translation>> {
+    let conn = db.conn.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT id, name, abbreviation, language, source_url, notes 
+         FROM translations WHERE abbreviation = ?"
+    )?;
+
+    let mut rows = stmt.query(params![abbreviation])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(Translation {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            abbreviation: row.get(2)?,
+            language: row.get(3)?,
+            source_url: row.get(4)?,
+            notes: row.get(5)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+// ============================================================================
+// Verse Queries
+// ============================================================================
+
+pub fn get_verse(db: &Database, book_abbreviation: &str, chapter: i32, verse_num: i32, translation_abbreviation: &str) -> SqliteResult<Option<Verse>> {
+    let conn = db.conn.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT v.id, v.book_id, b.abbreviation, v.chapter, v.verse_num, v.translation_id, v.text
+         FROM verses v
+         JOIN books b ON v.book_id = b.id
+         JOIN translations t ON v.translation_id = t.id
+         WHERE b.abbreviation = ? AND v.chapter = ? AND v.verse_num = ? AND t.abbreviation = ?"
+    )?;
+
+    let mut rows = stmt.query(params![book_abbreviation, chapter, verse_num, translation_abbreviation])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(Verse {
+            id: row.get(0)?,
+            book_id: row.get(1)?,
+            book_abbreviation: row.get(2)?,
+            chapter: row.get(3)?,
+            verse_num: row.get(4)?,
+            translation_id: row.get(5)?,
+            text: row.get(6)?,
+            ..Verse::default()
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn get_chapter(db: &Database, book_abbreviation: &str, chapter: i32, translations: Vec<&str>) -> SqliteResult<Vec<VerseGroup>> {
+    let conn = db.conn.lock().unwrap();
+    
+    if translations.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let placeholders: Vec<&str> = translations.iter().map(|_| "?").collect();
+    let query = format!(
+        "SELECT v.id, v.book_id, b.abbreviation, v.chapter, v.verse_num, v.translation_id, v.text, t.abbreviation as trans_abbr
+         FROM verses v
+         JOIN books b ON v.book_id = b.id
+         JOIN translations t ON v.translation_id = t.id
+         WHERE b.abbreviation = ? AND v.chapter = ? AND t.abbreviation IN ({})
+         ORDER BY v.verse_num, t.id",
+        placeholders.join(", ")
+    );
+
+    let mut stmt = conn.prepare(&query)?;
+    
+    let mut params_vec: Vec<&dyn rusqlite::ToSql> = vec![&book_abbreviation, &chapter];
+    for trans in &translations {
+        params_vec.push(trans);
+    }
+    
+    let rows = stmt.query_map(rusqlite::params_from_iter(params_vec), |row| {
+        Ok((
+            row.get::<_, i32>(3)?,  // chapter
+            row.get::<_, i32>(4)?,  // verse_num
+            Verse {
+                id: row.get(0)?,
+                book_id: row.get(1)?,
+                book_abbreviation: row.get(2)?,
+                chapter: row.get(3)?,
+                verse_num: row.get(4)?,
+                translation_id: row.get(5)?,
+                text: row.get(6)?,
+            ..Verse::default()
+            },
+            row.get::<_, String>(7)?,  // trans_abbr
+        ))
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    // Group by verse_num
+    let mut verse_groups: Vec<VerseGroup> = Vec::new();
+    let mut current_verse_num: Option<i32> = None;
+    let mut current_group: Vec<Verse> = Vec::new();
+    let mut current_translations: Vec<String> = Vec::new();
+
+    for (ch, vn, verse, trans_abbr) in rows {
+        if current_verse_num != Some(vn) {
+            if !current_group.is_empty() {
+                verse_groups.push(VerseGroup {
+                    chapter: ch,
+                    verse_num: current_verse_num.unwrap(),
+                    verses: current_group,
+                });
+            }
+            current_verse_num = Some(vn);
+            current_group = vec![verse];
+            current_translations = vec![trans_abbr];
+        } else {
+            current_group.push(verse);
+            current_translations.push(trans_abbr);
+        }
+    }
+
+    if !current_group.is_empty() {
+        verse_groups.push(VerseGroup {
+            chapter: chapter,
+            verse_num: current_verse_num.unwrap(),
+            verses: current_group,
+        });
+    }
+
+    Ok(verse_groups)
+}
+
+pub fn get_verse_by_id(db: &Database, verse_id: i64) -> SqliteResult<Option<Verse>> {
+    let conn = db.conn.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT v.id, v.book_id, b.abbreviation, v.chapter, v.verse_num, v.translation_id, v.text
+         FROM verses v
+         JOIN books b ON v.book_id = b.id
+         WHERE v.id = ?"
+    )?;
+
+    let mut rows = stmt.query(params![verse_id])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(Verse {
+            id: row.get(0)?,
+            book_id: row.get(1)?,
+            book_abbreviation: row.get(2)?,
+            chapter: row.get(3)?,
+            verse_num: row.get(4)?,
+            translation_id: row.get(5)?,
+            text: row.get(6)?,
+            ..Verse::default()
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+// ============================================================================
+// Search Queries
+// ============================================================================
+
+pub fn search_verses(
+    db: &Database,
+    query: &str,
+    translation: Option<&str>,
+    testament: Option<&str>,
+    genre: Option<&str>,
+    sort: Option<&str>,
+    limit: u32,
+) -> SqliteResult<Vec<SearchResult>> {
+    let conn = db.conn.lock().unwrap();
+
+    // Build dynamic ORDER BY
+    let order_by = match sort {
+        Some("book_order") => "b.order_index ASC, v.chapter ASC, v.verse_num ASC",
+        _ => "verses_fts.rank ASC",
+    };
+
+    let sql = format!(
+        "SELECT v.id, b.abbreviation, v.chapter, v.verse_num, v.text, t.abbreviation, verses_fts.rank
+         FROM verses_fts
+         JOIN verses v ON verses_fts.verse_id = v.id
+         JOIN books b ON v.book_id = b.id
+         JOIN translations t ON v.translation_id = t.id
+         WHERE verses_fts MATCH ?
+           AND (? IS NULL OR t.abbreviation = ?)
+           AND (? IS NULL OR b.testament = ?)
+           AND (? IS NULL OR b.genre = ?)
+         ORDER BY {}
+         LIMIT ?",
+        order_by
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+
+    let results = stmt.query_map(
+        params![
+            query,
+            translation, translation,
+            testament, testament,
+            genre, genre,
+            limit
+        ],
+        |row| {
+            Ok(SearchResult {
+                id: row.get(0)?,
+                book_abbreviation: row.get(1)?,
+                chapter: row.get(2)?,
+                verse_num: row.get(3)?,
+                text: row.get(4)?,
+                translation_abbreviation: row.get(5)?,
+                rank: row.get(6)?,
+            })
+        },
+    )?
+    .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(results)
+}
+
+pub fn search_terms(db: &Database, query: &str, min_frequency: u32) -> SqliteResult<Vec<TermResult>> {
+    let conn = db.conn.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT term, verse_count FROM terms_fts WHERE term MATCH ? AND verse_count >= ?"
+    )?;
+
+    let results = stmt.query_map(params![query, min_frequency], |row| {
+        Ok(TermResult {
+            term: row.get(0)?,
+            verse_count: row.get(1)?,
+        })
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    Ok(results)
+}
+
+// ============================================================================
+// Bookmark Queries
+// ============================================================================
+
+pub fn create_bookmark(db: &Database, verse_id: i64, label: Option<&str>) -> SqliteResult<Bookmark> {
+    let conn = db.conn.lock().unwrap();
+    conn.execute(
+        "INSERT INTO bookmarks (verse_id, label) VALUES (?, ?)",
+        params![verse_id, label],
+    )?;
+
+    let id = conn.last_insert_rowid();
+    let mut stmt = conn.prepare("SELECT id, verse_id, label, created_at FROM bookmarks WHERE id = ?")?;
+    let bookmark = stmt.query_row(params![id], |row| {
+        Ok(Bookmark {
+            id: row.get(0)?,
+            verse_id: row.get(1)?,
+            label: row.get(2)?,
+            created_at: row.get(3)?,
+        })
+    })?;
+
+    Ok(bookmark)
+}
+
+pub fn get_all_bookmarks(db: &Database) -> SqliteResult<Vec<BookmarkWithVerse>> {
+    let conn = db.conn.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT b.id, b.verse_id, b.label, b.created_at, 
+                bn.abbreviation, v.chapter, v.verse_num, v.text, t.abbreviation
+         FROM bookmarks b
+         JOIN verses v ON b.verse_id = v.id
+         JOIN books bn ON v.book_id = bn.id
+         JOIN translations t ON v.translation_id = t.id
+         ORDER BY b.created_at DESC"
+    )?;
+
+    let bookmarks = stmt.query_map([], |row| {
+        Ok(BookmarkWithVerse {
+            id: row.get(0)?,
+            verse_id: row.get(1)?,
+            label: row.get(2)?,
+            created_at: row.get(3)?,
+            book_abbreviation: row.get(4)?,
+            chapter: row.get(5)?,
+            verse_num: row.get(6)?,
+            text: row.get(7)?,
+            translation_abbreviation: row.get(8)?,
+        })
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    Ok(bookmarks)
+}
+
+pub fn delete_bookmark(db: &Database, id: i64) -> SqliteResult<()> {
+    let conn = db.conn.lock().unwrap();
+    conn.execute("DELETE FROM bookmarks WHERE id = ?", params![id])?;
+    Ok(())
+}
+
+// ============================================================================
+// Note Queries
+// ============================================================================
+
+pub fn create_note(db: &Database, verse_id: Option<i64>, title: Option<&str>, content: &str, tags: Vec<&str>) -> SqliteResult<Note> {
+    let conn = db.conn.lock().unwrap();
+    let tags_json = serde_json::to_string(&tags).unwrap_or_default();
+    
+    conn.execute(
+        "INSERT INTO notes (verse_id, title, content, tags) VALUES (?, ?, ?, ?)",
+        params![verse_id, title, content, tags_json],
+    )?;
+
+    let id = conn.last_insert_rowid();
+    let mut stmt = conn.prepare("SELECT id, verse_id, title, content, tags, created_at, updated_at FROM notes WHERE id = ?")?;
+    let note = stmt.query_row(params![id], |row| {
+        Ok(Note {
+            id: row.get(0)?,
+            verse_id: row.get(1)?,
+            title: row.get(2)?,
+            content: row.get(3)?,
+            tags: row.get(4)?,
+            created_at: row.get(5)?,
+            updated_at: row.get(6)?,
+        })
+    })?;
+
+    Ok(note)
+}
+
+pub fn get_notes(db: &Database, verse_id: Option<i64>) -> SqliteResult<Vec<Note>> {
+    let conn = db.conn.lock().unwrap();
+    
+    let (sql, params_vec): (String, Vec<Box<dyn rusqlite::ToSql>>) = if let Some(vid) = verse_id {
+        (
+            "SELECT id, verse_id, title, content, tags, created_at, updated_at 
+             FROM notes WHERE verse_id = ? ORDER BY updated_at DESC".to_string(),
+            vec![Box::new(vid)]
+        )
+    } else {
+        (
+            "SELECT id, verse_id, title, content, tags, created_at, updated_at 
+             FROM notes ORDER BY updated_at DESC".to_string(),
+            vec![]
+        )
+    };
+
+    let mut stmt = conn.prepare(&sql)?;
+    let params_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|b| b.as_ref()).collect();
+    
+    let notes = stmt.query_map(rusqlite::params_from_iter(params_refs), |row| {
+        Ok(Note {
+            id: row.get(0)?,
+            verse_id: row.get(1)?,
+            title: row.get(2)?,
+            content: row.get(3)?,
+            tags: row.get(4)?,
+            created_at: row.get(5)?,
+            updated_at: row.get(6)?,
+        })
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    Ok(notes)
+}
+
+pub fn update_note(db: &Database, id: i64, title: Option<&str>, content: &str, tags: Vec<&str>) -> SqliteResult<Note> {
+    let conn = db.conn.lock().unwrap();
+    let tags_json = serde_json::to_string(&tags).unwrap_or_default();
+    
+    conn.execute(
+        "UPDATE notes SET title = ?, content = ?, tags = ?, updated_at = datetime('now') WHERE id = ?",
+        params![title, content, tags_json, id],
+    )?;
+
+    let mut stmt = conn.prepare("SELECT id, verse_id, title, content, tags, created_at, updated_at FROM notes WHERE id = ?")?;
+    let note = stmt.query_row(params![id], |row| {
+        Ok(Note {
+            id: row.get(0)?,
+            verse_id: row.get(1)?,
+            title: row.get(2)?,
+            content: row.get(3)?,
+            tags: row.get(4)?,
+            created_at: row.get(5)?,
+            updated_at: row.get(6)?,
+        })
+    })?;
+
+    Ok(note)
+}
+
+pub fn delete_note(db: &Database, id: i64) -> SqliteResult<()> {
+    let conn = db.conn.lock().unwrap();
+    conn.execute("DELETE FROM notes WHERE id = ?", params![id])?;
+    Ok(())
+}
+
+pub fn search_notes(db: &Database, query: &str) -> SqliteResult<Vec<Note>> {
+    let conn = db.conn.lock().unwrap();
+    let search_pattern = format!("%{}%", query);
+    
+    // Search in title, content, and tags (JSON array stored as text)
+    let mut stmt = conn.prepare(
+        "SELECT id, verse_id, title, content, tags, created_at, updated_at 
+         FROM notes WHERE content LIKE ? OR title LIKE ? OR tags LIKE ? ORDER BY updated_at DESC"
+    )?;
+
+    let notes = stmt.query_map(params![&search_pattern, &search_pattern, &search_pattern], |row| {
+        Ok(Note {
+            id: row.get(0)?,
+            verse_id: row.get(1)?,
+            title: row.get(2)?,
+            content: row.get(3)?,
+            tags: row.get(4)?,
+            created_at: row.get(5)?,
+            updated_at: row.get(6)?,
+        })
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    Ok(notes)
+}
+
+// ============================================================================
+// Lexicon Queries
+// ============================================================================
+
+pub fn get_strongs_greek(db: &Database, id: &str) -> SqliteResult<Option<StrongsGreek>> {
+    let conn = db.conn.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT id, word, transliteration, definition, pronunciation FROM strongs_greek WHERE id = ?"
+    )?;
+
+    let mut rows = stmt.query(params![id])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(StrongsGreek {
+            id: row.get(0)?,
+            word: row.get(1)?,
+            transliteration: row.get(2)?,
+            definition: row.get(3)?,
+            pronunciation: row.get(4)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn get_ketiv_qere(db: &Database, book_abbreviation: &str, chapter: i32, verse_num: i32) -> SqliteResult<Vec<KetivQere>> {
+    let conn = db.conn.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT k.ketiv, k.qere
+         FROM ketiv_qere k
+         JOIN books b ON k.book_id = b.id
+         WHERE b.abbreviation = ? AND k.chapter = ? AND k.verse_num = ?",
+    )?;
+    let entries = stmt
+        .query_map(params![book_abbreviation, chapter, verse_num], |row| {
+            Ok(KetivQere {
+                ketiv: row.get(0)?,
+                qere: row.get(1)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(entries)
+}
+
+pub fn get_strongs_hebrew(db: &Database, id: &str) -> SqliteResult<Option<StrongsHebrew>> {
+    let conn = db.conn.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT id, word, ketiv_qere, transliteration, definition, pronunciation FROM strongs_hebrew WHERE id = ?"
+    )?;
+
+    let mut rows = stmt.query(params![id])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(StrongsHebrew {
+            id: row.get(0)?,
+            word: row.get(1)?,
+            ketiv_qere: row.get(2)?,
+            transliteration: row.get(3)?,
+            definition: row.get(4)?,
+            pronunciation: row.get(5)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn get_verse_words(db: &Database, verse_id: i64) -> SqliteResult<Vec<WordMapping>> {
+    let conn = db.conn.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT id, verse_id, word_index, strongs_id, original_word, lemma, morphology, language
+         FROM word_mappings WHERE verse_id = ? ORDER BY word_index"
+    )?;
+
+    let words = stmt.query_map(params![verse_id], |row| {
+        Ok(WordMapping {
+            id: row.get(0)?,
+            verse_id: row.get(1)?,
+            word_index: row.get(2)?,
+            strongs_id: row.get(3)?,
+            original_word: row.get(4)?,
+            lemma: row.get(5)?,
+            morphology: row.get(6)?,
+            language: row.get(7)?,
+        })
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    Ok(words)
+}
+
+// ============================================================================
+// Progress Queries
+// ============================================================================
+
+pub fn get_reading_progress(db: &Database) -> SqliteResult<Vec<ReadingProgressEntry>> {
+    let conn = db.conn.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT book_id, chapter, last_read_at FROM reading_progress ORDER BY last_read_at DESC"
+    )?;
+    let entries = stmt
+        .query_map([], |row| {
+            Ok(ReadingProgressEntry {
+                book_id: row.get(0)?,
+                chapter: row.get(1)?,
+                last_read_at: row.get(2)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(entries)
+}
+
+pub fn update_reading_progress(db: &Database, book_id: i64, chapter: i32) -> SqliteResult<()> {
+    let conn = db.conn.lock().unwrap();
+    conn.execute(
+        "INSERT OR REPLACE INTO reading_progress (book_id, chapter, last_read_at) VALUES (?, ?, datetime('now'))",
+        params![book_id, chapter],
+    )?;
+    Ok(())
+}
+
+// ============================================================================
+// Preference Queries
+// ============================================================================
+
+pub fn get_preference(db: &Database, key: &str) -> SqliteResult<Option<String>> {
+    let conn = db.conn.lock().unwrap();
+    let mut stmt = conn.prepare("SELECT value FROM user_preferences WHERE key = ?")?;
+    
+    let mut rows = stmt.query(params![key])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(row.get(0)?))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn set_preference(db: &Database, key: &str, value: &str) -> SqliteResult<()> {
+    let conn = db.conn.lock().unwrap();
+    conn.execute(
+        "INSERT OR REPLACE INTO user_preferences (key, value) VALUES (?, ?)",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+// ============================================================================
+// Compare Verses
+// ============================================================================
+
+pub fn compare_verses(db: &Database, book_abbreviation: &str, chapter: i32, verse_num: i32, translations: Vec<&str>) -> SqliteResult<CompareResult> {
+    if translations.is_empty() {
+        return Ok(CompareResult {
+            book_abbreviation: book_abbreviation.to_string(),
+            chapter,
+            verse_num,
+            translations: vec![],
+        });
+    }
+
+    let conn = db.conn.lock().unwrap();
+    
+    let placeholders: Vec<&str> = translations.iter().map(|_| "?").collect();
+    let query = format!(
+        "SELECT v.id, v.book_id, b.abbreviation, v.chapter, v.verse_num, v.translation_id, v.text
+         FROM verses v
+         JOIN books b ON v.book_id = b.id
+         JOIN translations t ON v.translation_id = t.id
+         WHERE b.abbreviation = ? AND v.chapter = ? AND v.verse_num = ? AND t.abbreviation IN ({})
+         ORDER BY t.id",
+        placeholders.join(", ")
+    );
+
+    let mut stmt = conn.prepare(&query)?;
+    
+    let mut params_vec: Vec<&dyn rusqlite::ToSql> = vec![&book_abbreviation, &chapter, &verse_num];
+    for trans in &translations {
+        params_vec.push(trans);
+    }
+    
+    let verses = stmt.query_map(rusqlite::params_from_iter(params_vec), |row| {
+        Ok(Verse {
+            id: row.get(0)?,
+            book_id: row.get(1)?,
+            book_abbreviation: row.get(2)?,
+            chapter: row.get(3)?,
+            verse_num: row.get(4)?,
+            translation_id: row.get(5)?,
+            text: row.get(6)?,
+            ..Verse::default()
+        })
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    Ok(CompareResult {
+        book_abbreviation: book_abbreviation.to_string(),
+        chapter,
+        verse_num,
+        translations: verses,
+    })
+}
+
+// ============================================================================
+// Original Language Queries
+// ============================================================================
+
+/// Fetches the OSHB (Hebrew) and SBLGNT (Greek) verses for a given chapter,
+/// along with word-level mappings (Strong's numbers, morphology).
+/// Uses a single LEFT JOIN — no N+1.
+pub fn get_chapter_originals(
+    db: &Database,
+    book_abbreviation: &str,
+    chapter: i32,
+) -> SqliteResult<Vec<Verse>> {
+    let conn = db.conn.lock().unwrap();
+
+    // Single query: verses LEFT JOIN word_mappings, ordered so all word rows
+    // for a verse appear consecutively.
+    let mut stmt = conn.prepare(
+        "SELECT
+             v.id AS verse_id,
+             v.book_id,
+             b.abbreviation,
+             v.chapter,
+             v.verse_num,
+             v.translation_id,
+             v.text,
+             t.abbreviation AS trans_abbr,
+             wm.id AS wm_id,
+             wm.word_index,
+             wm.strongs_id,
+             wm.original_word,
+             wm.lemma,
+             wm.morphology,
+             wm.language AS wm_lang
+         FROM verses v
+         JOIN books b ON v.book_id = b.id
+         JOIN translations t ON v.translation_id = t.id
+         LEFT JOIN word_mappings wm ON wm.verse_id = v.id
+         WHERE b.abbreviation = ? AND v.chapter = ?
+           AND t.abbreviation IN ('oshb', 'sblgnt')
+         ORDER BY v.verse_num, t.id, wm.word_index",
+    )?;
+
+    let rows = stmt.query_map(params![book_abbreviation, chapter], |row| {
+        Ok((
+            row.get::<_, i64>("verse_id")?,
+            row.get::<_, i64>("book_id")?,
+            row.get::<_, String>("abbreviation")?,
+            row.get::<_, i32>("chapter")?,
+            row.get::<_, i32>("verse_num")?,
+            row.get::<_, i64>("translation_id")?,
+            row.get::<_, String>("text")?,
+            row.get::<_, String>("trans_abbr")?,
+            row.get::<_, Option<i64>>("wm_id")?,
+            row.get::<_, Option<i32>>("word_index")?,
+            row.get::<_, Option<String>>("strongs_id")?,
+            row.get::<_, Option<String>>("original_word")?,
+            row.get::<_, Option<String>>("lemma")?,
+            row.get::<_, Option<String>>("morphology")?,
+            row.get::<_, Option<String>>("wm_lang")?,
+        ))
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    // Group rows by verse_id in Rust
+    use std::collections::HashMap;
+    let mut verse_map: HashMap<i64, Verse> = HashMap::new();
+    let mut word_map: HashMap<i64, Vec<WordMapping>> = HashMap::new();
+
+    for row in rows {
+        let (verse_id, book_id, book_abbrev, ch, vn, trans_id, text, trans_abbr,
+             wm_id, word_index, strongs_id, original_word, lemma, morphology, wm_lang) = row;
+
+        verse_map.entry(verse_id).or_insert_with(|| Verse {
+            id: verse_id,
+            book_id,
+            book_abbreviation: book_abbrev,
+            chapter: ch,
+            verse_num: vn,
+            translation_id: trans_id,
+            text,
+            translation_abbreviation: Some(trans_abbr),
+            word_mappings: None,
+        });
+
+        if let (Some(id), Some(idx), Some(sid), Some(ow), Some(lang)) =
+            (wm_id, word_index, strongs_id, original_word, wm_lang)
+        {
+            word_map.entry(verse_id).or_default().push(WordMapping {
+                id,
+                verse_id,
+                word_index: idx,
+                strongs_id: sid,
+                original_word: ow,
+                lemma,
+                morphology,
+                language: lang,
+            });
+        }
+    }
+
+    // Assemble verses with their word_mappings
+    let mut verses: Vec<Verse> = verse_map
+        .into_iter()
+        .map(|(id, mut v)| {
+            v.word_mappings = Some(word_map.remove(&id).unwrap_or_default());
+            v
+        })
+        .collect();
+
+    // Restore original sort order: by verse_num, then translation order
+    verses.sort_by_key(|v| (v.verse_num, v.translation_id));
+
+    Ok(verses)
+}
+
+// ============================================================================
+// Ingest / FTS Population
+// ============================================================================
+
+use std::collections::HashMap;
+use regex::Regex;
+
+pub fn populate_terms_fts(db: &Database) -> SqliteResult<IngestResult> {
+    let conn = db.conn.lock().unwrap();
+
+    // Check if already populated
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM terms_fts",
+        [],
+        |row| row.get(0),
+    )?;
+
+    if count > 0 {
+        return Ok(IngestResult {
+            terms_indexed: 0,
+            unique_terms: 0,
+            already_populated: true,
+        });
+    }
+
+    // Pull all verses (id, text, translation_id) in batches to avoid memory blowout
+    let mut stmt = conn.prepare(
+        "SELECT id, text, translation_id FROM verses",
+    )?;
+
+    let word_re = Regex::new(r"[a-zA-Z]{2,}").unwrap();
+
+    let mut global_counts: HashMap<String, i64> = HashMap::new();
+
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+    })?;
+
+    for row in rows {
+        let (_verse_id, text, _translation_id) = row?;
+        for word in word_re.find_iter(&text) {
+            let term = word.as_str().to_lowercase();
+            *global_counts.entry(term).or_insert(0) += 1;
+        }
+    }
+
+    // Batch-insert into terms_fts (FTS5 virtual table)
+    let mut insert_stmt = conn.prepare(
+        "INSERT INTO terms_fts (term, verse_count, translation_id) VALUES (?, ?, 0)",
+    )?;
+
+    let mut tx = conn.unchecked_transaction()?;
+    let mut indexed = 0i64;
+
+    // Commit every 5000 terms
+    let batch_size = 5000;
+    let entries: Vec<_> = global_counts.into_iter().collect();
+
+    for chunk in entries.chunks(batch_size) {
+        for (term, count) in chunk {
+            insert_stmt.execute(params![term, count])?;
+            indexed += 1;
+        }
+        tx.commit()?;
+        // Start a new transaction for the next batch
+        tx = conn.unchecked_transaction()?;
+    }
+
+    drop(insert_stmt);
+
+    let unique_terms = indexed;
+
+    info!(
+        "terms_fts populated: {} unique terms indexed from verses",
+        unique_terms
+    );
+
+    Ok(IngestResult {
+        terms_indexed: indexed,
+        unique_terms,
+        already_populated: false,
+    })
+}

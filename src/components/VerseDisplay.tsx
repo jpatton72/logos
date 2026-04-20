@@ -1,0 +1,527 @@
+import { useState, useEffect } from 'react';
+import { useAppStore } from '../store/useAppStore';
+import { createBookmark, getKetivQere } from '../api';
+import type { VerseGroup, WordMapping, KetivQere } from '../lib/tauri';
+
+// ============================================================================
+// Morphology Parsing (reused from Lexicon.tsx)
+// ============================================================================
+
+interface MorphologyPart {
+  label: string;
+  value: string;
+}
+
+const GREEK_PART_OF_SPEECH: Record<string, string> = {
+  N: 'Noun', V: 'Verb', A: 'Adjective', D: 'Adverb', P: 'Preposition',
+  C: 'Conjunction', X: 'Article', I: 'Interjection', R: 'Pronoun', 'S': 'Substantive',
+};
+
+const GREEK_CASE: Record<string, string> = { N: 'Nominative', G: 'Genitive', D: 'Dative', A: 'Accusative', V: 'Vocative' };
+const GREEK_NUMBER: Record<string, string> = { S: 'Singular', P: 'Plural' };
+const GREEK_GENDER: Record<string, string> = { M: 'Masculine', F: 'Feminine', N: 'Neuter' };
+const GREEK_PERSON: Record<string, string> = { '1': '1st', '2': '2nd', '3': '3rd' };
+const GREEK_TENSE: Record<string, string> = { P: 'Present', I: 'Imperfect', F: 'Future', A: 'Aorist', E: 'Perfect', L: 'Pluperfect', R: 'Perf.', X: 'No tense' };
+const GREEK_VOICE: Record<string, string> = { A: 'Active', M: 'Middle', P: 'Passive', D: 'Mid./Pass.', O: 'Middle', N: 'Passive' };
+const GREEK_MOOD: Record<string, string> = { I: 'Indic.', D: 'Imper.', S: 'Subj.', O: 'Opt.', N: 'Infin.', P: 'Partic.' };
+
+const HEBREW_PART_OF_SPEECH: Record<string, string> = {
+  N: 'Noun', V: 'Verb', A: 'Adjective', D: 'Adverb', P: 'Preposition',
+  C: 'Conjunction', R: 'Pronoun', I: 'Interjection',
+};
+
+const HEBREW_NUMBER: Record<string, string> = { S: 'Singular', P: 'Plural' };
+const HEBREW_GENDER: Record<string, string> = { M: 'Masculine', F: 'Feminine' };
+const HEBREW_PERSON: Record<string, string> = { '1': '1st', '2': '2nd', '3': '3rd' };
+
+function parseGreekMorphology(tag: string): MorphologyPart[] {
+  if (!tag) return [];
+  const parts: MorphologyPart[] = [];
+  let rest = tag;
+
+  const pos = rest.charAt(0);
+  if (GREEK_PART_OF_SPEECH[pos]) {
+    parts.push({ label: 'POS', value: GREEK_PART_OF_SPEECH[pos] });
+    rest = rest.slice(1);
+  }
+
+  let idx = 0;
+  const s = rest;
+
+  if (idx < s.length && '123'.includes(s[idx])) {
+    const p = GREEK_PERSON[s[idx]];
+    if (p) parts.push({ label: 'Person', value: p });
+    idx++;
+  }
+
+  if (idx < s.length && 'SP'.includes(s[idx])) {
+    const n = GREEK_NUMBER[s[idx]];
+    if (n) parts.push({ label: 'Number', value: n });
+    idx++;
+  }
+
+  if (idx < s.length && 'MFN'.includes(s[idx])) {
+    const g = GREEK_GENDER[s[idx]];
+    if (g) parts.push({ label: 'Gender', value: g });
+    idx++;
+  }
+
+  if (idx < s.length && 'NGDAV'.includes(s[idx])) {
+    const c = GREEK_CASE[s[idx]];
+    if (c) parts.push({ label: 'Case', value: c });
+    idx++;
+  }
+
+  if (parts.length === 1 || (parts[0]?.label === 'POS' && ['V', 'X'].includes(pos))) {
+    const rem = s.slice(idx);
+    if (rem.length > 0) {
+      const t = GREEK_TENSE[rem[0]];
+      if (t) { parts.push({ label: 'Tense', value: t }); idx++; }
+    }
+    if (idx < rem.length) {
+      const v = GREEK_VOICE[rem[idx]];
+      if (v) { parts.push({ label: 'Voice', value: v }); idx++; }
+    }
+    if (idx < rem.length) {
+      const m = GREEK_MOOD[rem[idx]];
+      if (m) { parts.push({ label: 'Mood', value: m }); idx++; }
+    }
+  }
+
+  return parts;
+}
+
+function parseHebrewMorphology(tag: string): MorphologyPart[] {
+  if (!tag) return [];
+  const parts: MorphologyPart[] = [];
+  let rest = tag;
+
+  const pos = rest.charAt(0);
+  if (HEBREW_PART_OF_SPEECH[pos]) {
+    parts.push({ label: 'POS', value: HEBREW_PART_OF_SPEECH[pos] });
+    rest = rest.slice(1);
+  }
+
+  const s = rest;
+  let idx = 0;
+
+  if (idx < s.length && 'QqNnDdPpHhOoTt'.includes(s[idx])) {
+    const stemMap: Record<string, string> = {
+      Q: 'Qal', q: 'Qal', N: 'Niphal', n: 'Niphal',
+      D: 'Piel', d: 'Piel', P: 'Pual', p: 'Pual',
+      H: 'Hiphil', h: 'Hiphil', O: 'Hophal', o: 'Hophal',
+      T: 'Hithpael', t: 'Hithpael',
+    };
+    const stem = stemMap[s[idx]];
+    if (stem) { parts.push({ label: 'Stem', value: stem }); idx++; }
+  }
+
+  if (idx < s.length && '123'.includes(s[idx])) {
+    const p = HEBREW_PERSON[s[idx]];
+    if (p) { parts.push({ label: 'Person', value: p }); idx++; }
+  }
+
+  if (idx < s.length && 'SPsp'.includes(s[idx])) {
+    const n = HEBREW_NUMBER[s[idx].toUpperCase()];
+    if (n) { parts.push({ label: 'Number', value: n }); idx++; }
+  }
+
+  if (idx < s.length && 'MFmf'.includes(s[idx])) {
+    const g = HEBREW_GENDER[s[idx].toUpperCase()];
+    if (g) { parts.push({ label: 'Gender', value: g }); idx++; }
+  }
+
+  if (idx < s.length && 'NGDAVngdav'.includes(s[idx])) {
+    const c = GREEK_CASE[s[idx].toUpperCase()];
+    if (c) { parts.push({ label: 'Case', value: c }); idx++; }
+  }
+
+  return parts;
+}
+
+// Extended Verse with word mappings
+interface VerseWithWords extends Omit<import('../lib/tauri').Verse, never> {
+  word_mappings?: WordMapping[];
+}
+
+// ============================================================================
+// Word Tooltip
+// ============================================================================
+
+interface WordTooltipProps {
+  word: WordMapping;
+  ketivQeres: KetivQere[];
+  position: { top: number; left: number };
+}
+
+function WordTooltip({ word, ketivQeres, position }: WordTooltipProps) {
+  const { darkMode } = useAppStore();
+  const isHebrew = word.language === 'hebrew';
+  const morphParts = isHebrew ? parseHebrewMorphology(word.morphology ?? '') : parseGreekMorphology(word.morphology ?? '');
+
+  return (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        position: 'fixed',
+        top: Math.max(8, position.top - 10),
+        left: Math.min(position.left, window.innerWidth - 300),
+        zIndex: 100,
+        backgroundColor: darkMode ? '#252519' : '#ffffff',
+        border: `1px solid ${darkMode ? '#92400e' : '#d97706'}`,
+        borderRadius: '10px',
+        padding: '0.875rem',
+        width: '280px',
+        maxWidth: '90vw',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
+        cursor: 'default',
+      }}
+    >
+      {/* Original word */}
+      <div
+        style={{
+          fontFamily: isHebrew ? "'Noto Serif Hebrew', serif" : "'Noto Serif', serif",
+          fontSize: '1.5rem',
+          fontWeight: 700,
+          direction: isHebrew ? 'rtl' : 'ltr',
+          textAlign: isHebrew ? 'right' : 'left',
+          color: isHebrew ? (darkMode ? '#fcd34d' : '#92400e') : (darkMode ? '#93c5fd' : '#1d4ed8'),
+          marginBottom: '0.375rem',
+          lineHeight: 1.2,
+        }}
+      >
+        {word.original_word}
+      </div>
+
+      {/* Lemma */}
+      {word.lemma && word.lemma !== word.original_word && (
+        <div style={{ fontSize: '0.78rem', fontStyle: 'italic', color: darkMode ? '#a8a29e' : '#78716c', marginBottom: '0.375rem', direction: isHebrew ? 'rtl' : 'ltr', textAlign: isHebrew ? 'right' : 'left' }}>
+          Lemma: {word.lemma}
+        </div>
+      )}
+
+      {/* Strong's badge */}
+      <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '0.5rem', alignItems: 'center' }}>
+        <span
+          style={{
+            fontSize: '0.7rem',
+            fontWeight: 700,
+            padding: '0.15rem 0.5rem',
+            borderRadius: '9999px',
+            backgroundColor: darkMode ? '#78350f' : '#fef3c7',
+            color: darkMode ? '#fcd34d' : '#92400e',
+          }}
+        >
+          {word.strongs_id}
+        </span>
+        <span style={{ fontSize: '0.7rem', fontWeight: 600, color: darkMode ? '#78716c' : '#a8a29e', textTransform: 'uppercase' }}>
+          {isHebrew ? 'Heb' : 'Gk'}
+        </span>
+      </div>
+
+      {/* Morphology breakdown */}
+      {morphParts.length > 0 && (
+        <div style={{ marginTop: '0.5rem' }}>
+          <div style={{ fontSize: '0.68rem', fontWeight: 700, color: darkMode ? '#78716c' : '#a8a29e', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
+            Morphology
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+            {morphParts.map((p) => (
+              <span
+                key={p.label}
+                style={{
+                  fontSize: '0.7rem',
+                  padding: '0.15rem 0.4rem',
+                  borderRadius: '4px',
+                  backgroundColor: darkMode ? '#1a1a14' : '#fefce8',
+                  border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}`,
+                  color: darkMode ? '#f5f5f4' : '#292524',
+                }}
+              >
+                <span style={{ fontWeight: 600, color: darkMode ? '#a8a29e' : '#78716c' }}>{p.label}:</span> {p.value}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Raw morphology */}
+      {word.morphology && (
+        <div style={{ fontSize: '0.65rem', color: darkMode ? '#57534e' : '#a8a29e', marginTop: '0.25rem', fontFamily: 'monospace' }}>
+          {word.morphology}
+        </div>
+      )}
+
+      {/* Ketiv/Qere display */}
+      {ketivQeres.length > 0 && isHebrew && (
+        <div style={{ marginTop: '0.625rem', padding: '0.5rem', borderRadius: '6px', backgroundColor: darkMode ? '#1a1a14' : '#fefce8', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>
+          <div style={{ fontSize: '0.65rem', fontWeight: 700, color: darkMode ? '#78716c' : '#a8a29e', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
+            Ketiv / Qere
+          </div>
+          {ketivQeres.map((kq, i) => (
+            <div key={i} style={{ fontSize: '0.78rem', marginBottom: '0.125rem' }}>
+              <span style={{ fontFamily: "'Noto Serif Hebrew', serif", direction: 'rtl', display: 'block', color: darkMode ? '#92400e' : '#b45309', fontWeight: 600 }}>
+                Ketiv (written): {kq.ketiv}
+              </span>
+              <span style={{ fontFamily: "'Noto Serif Hebrew', serif", direction: 'rtl', display: 'block', color: darkMode ? '#15803d' : '#166534', fontWeight: 600 }}>
+                Qere (read): {kq.qere}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Close hint */}
+      <div style={{ fontSize: '0.62rem', color: darkMode ? '#57534e' : '#a8a29e', marginTop: '0.5rem', textAlign: 'center' }}>
+        Click elsewhere to close
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Word Chip
+// ============================================================================
+
+interface WordChipProps {
+  word: WordMapping;
+  isHebrew: boolean;
+  ketivQeres: KetivQere[];
+  onClick: (word: WordMapping, pos: { top: number; left: number }) => void;
+}
+
+function WordChip({ word, isHebrew, ketivQeres, onClick }: WordChipProps) {
+  const [hovered, setHovered] = useState(false);
+  const { darkMode } = useAppStore();
+
+  return (
+    <span
+      onClick={(e) => {
+        e.stopPropagation();
+        const rect = e.currentTarget.getBoundingClientRect();
+        onClick(word, { top: rect.bottom + 4, left: rect.left });
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'inline-block',
+        fontFamily: isHebrew ? "'Noto Serif Hebrew', serif" : "'Noto Serif', serif",
+        fontSize: '0.95rem',
+        padding: '0.1rem 0.3rem',
+        borderRadius: '4px',
+        cursor: 'pointer',
+        transition: 'background-color 0.15s, color 0.15s',
+        backgroundColor: hovered
+          ? (isHebrew ? (darkMode ? '#78350f' : '#fef3c7') : (darkMode ? '#1e3a8a' : '#dbeafe'))
+          : 'transparent',
+        color: isHebrew
+          ? (darkMode ? '#fcd34d' : '#92400e')
+          : (darkMode ? '#93c5fd' : '#1d4ed8'),
+        fontWeight: hovered ? 700 : 500,
+        margin: '0.05rem 0.1rem',
+      }}
+      title={`${word.lemma ? `Lemma: ${word.lemma}\n` : ''}Strong's: ${word.strongs_id}${ketivQeres.length > 0 ? `\nKetiv/Qere: ${ketivQeres.map(k => `${k.ketiv} → ${k.qere}`).join(', ')}` : ''}`}
+    >
+      {word.original_word}
+    </span>
+  );
+}
+
+// ============================================================================
+// Original Language Row
+// ============================================================================
+
+interface OriginalRowProps {
+  words: WordMapping[];
+  isHebrew: boolean;
+  ketivQeres: KetivQere[];
+}
+
+function OriginalRow({ words, isHebrew, ketivQeres }: OriginalRowProps) {
+  const { darkMode } = useAppStore();
+  const [tooltip, setTooltip] = useState<{ word: WordMapping; pos: { top: number; left: number } } | null>(null);
+
+  return (
+    <div
+      style={{
+        direction: isHebrew ? 'rtl' : 'ltr',
+        paddingLeft: isHebrew ? '0' : '1.75rem',
+        paddingRight: isHebrew ? '1.75rem' : '0',
+        paddingTop: '0.2rem',
+        paddingBottom: '0.2rem',
+        fontSize: '0.85rem',
+        lineHeight: 1.8,
+        color: isHebrew
+          ? (darkMode ? '#fcd34d' : '#92400e')
+          : (darkMode ? '#93c5fd' : '#1d4ed8'),
+        backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+        borderRadius: '4px',
+        marginTop: '0.125rem',
+        opacity: 0.85,
+      }}
+    >
+      {words.map((w) => (
+        <WordChip
+          key={w.id}
+          word={w}
+          isHebrew={isHebrew}
+          ketivQeres={ketivQeres}
+          onClick={(word, pos) => setTooltip({ word, pos })}
+        />
+      ))}
+      {tooltip && (
+        <WordTooltip
+          word={tooltip.word}
+          ketivQeres={ketivQeres}
+          position={tooltip.pos}
+        />
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// VerseDisplay Props & Component
+// ============================================================================
+
+interface VerseDisplayProps {
+  group: VerseGroup;
+  originalVerses?: VerseWithWords[];
+}
+
+export function VerseDisplay({ group, originalVerses }: VerseDisplayProps) {
+  const { darkMode, fontSize, currentVerse, setVerse, addBookmark, bookmarks } = useAppStore();
+  const [bmHover, setBmHover] = useState(false);
+  const [ketivQere, setKetivQere] = useState<Record<number, KetivQere[]>>({});
+  const isActive = currentVerse === group.verse_num;
+  const primaryVerse = group.verses[0];
+  const isBookmarked = bookmarks.some((b) => b.verse_id === primaryVerse?.id);
+
+  // Fetch Ketiv/Qere data for OSHB verses
+  useEffect(() => {
+    const oshbVerse = originalVerses?.find(v => v.translation_abbreviation === 'oshb' || v.translation_id === 3);
+    if (!oshbVerse) return;
+    (async () => {
+      try {
+        const kq = await getKetivQere(oshbVerse.book_abbreviation, oshbVerse.chapter, oshbVerse.verse_num);
+        if (kq.length > 0) {
+          setKetivQere((prev) => ({ ...prev, [group.verse_num]: kq }));
+        }
+      } catch {
+        // silent — K/Q just won't show
+      }
+    })();
+  }, [group.verse_num, originalVerses]);
+
+  const handleBookmark = async () => {
+    if (!primaryVerse) return;
+    try {
+      await createBookmark(primaryVerse.id);
+      addBookmark({
+        id: Date.now(), // optimistic
+        verse_id: primaryVerse.id,
+        label: null,
+        book_abbreviation: primaryVerse.book_abbreviation,
+        chapter: group.chapter,
+        verse_num: group.verse_num,
+        text: primaryVerse.text,
+        translation_abbreviation: primaryVerse.translation_abbreviation || '',
+        created_at: new Date().toISOString(),
+      });
+    } catch {
+      // silent fail — bookmark button just won't update
+    }
+  };
+  // Separate OSHB and SBLGNT words
+  const oshbWords = originalVerses
+    ?.find(v => v.translation_abbreviation === 'oshb' || v.translation_id === 3)
+    ?.word_mappings ?? [];
+  const sblgntWords = originalVerses
+    ?.find(v => v.translation_abbreviation === 'sblgnt' || v.translation_id === 4)
+    ?.word_mappings ?? [];
+
+  return (
+    <div
+      id={`verse-${group.verses[0]?.book_abbreviation}-${group.chapter}-${group.verse_num}`}
+      onClick={() => setVerse(group.verse_num)}
+      style={{
+        display: 'block',
+        gap: '0.5rem',
+        alignItems: 'stretch',
+        backgroundColor: isActive
+          ? darkMode ? 'rgba(120, 53, 15, 0.2)' : 'rgba(254, 243, 199, 0.5)'
+          : 'transparent',
+        borderRadius: '4px',
+        padding: isActive ? '0.25rem 0.5rem' : '0.125rem 0.5rem',
+        cursor: 'pointer',
+        transition: 'background-color 0.15s',
+      }}
+    >
+      {group.verses.map((verse) => (
+        <div key={verse.translation_abbreviation} style={{ flex: 1 }}>
+          <div
+            style={{
+              display: 'flex',
+              gap: '0.75rem',
+              alignItems: 'flex-start',
+              position: 'relative',
+            }}
+          >
+            <span
+              className="verse-number"
+              style={{ color: darkMode ? '#a8a29e' : '#92400e', fontSize: '0.65em' }}
+            >
+              {verse.verse_num}
+            </span>
+            <p
+              style={{
+                margin: 0,
+                fontFamily: "'Lora', Georgia, serif",
+                fontSize: `${fontSize}px`,
+                lineHeight: 1.8,
+                color: darkMode ? '#f5f5f4' : '#292524',
+                flex: 1,
+              }}
+            >
+              {verse.text}
+            </p>
+            {/* Bookmark button — appears on hover */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleBookmark();
+              }}
+              title={isBookmarked ? 'Bookmarked' : 'Add bookmark'}
+              style={{
+                opacity: bmHover || isBookmarked ? 1 : 0,
+                background: 'none',
+                border: 'none',
+                cursor: isBookmarked ? 'default' : 'pointer',
+                padding: '2px',
+                borderRadius: '4px',
+                color: isBookmarked ? '#d97706' : darkMode ? '#78716c' : '#92400e',
+                transition: 'opacity 0.15s',
+                flexShrink: 0,
+                marginTop: '2px',
+              }}
+              onMouseEnter={() => setBmHover(true)}
+              onMouseLeave={() => setBmHover(false)}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill={isBookmarked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
+                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      ))}
+
+      {/* Original language rows */}
+      {oshbWords.length > 0 && (
+        <OriginalRow words={oshbWords} isHebrew={true} ketivQeres={ketivQere[group.verse_num] ?? []} />
+      )}
+      {sblgntWords.length > 0 && (
+        <OriginalRow words={sblgntWords} isHebrew={false} ketivQeres={[]} />
+      )}
+    </div>
+  );
+}

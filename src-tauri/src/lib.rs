@@ -1,0 +1,118 @@
+use directories::ProjectDirs;
+use std::path::PathBuf;
+use tracing::{error, info, Level};
+use tracing_subscriber::fmt::format::FmtSpan;
+
+mod commands;
+mod database;
+pub mod ai;
+
+use commands::{
+    ai_chat, compare_verses, create_bookmark, create_note, delete_bookmark, delete_note,
+    export_notes_and_bookmarks, get_book_index, get_bookmarks, get_chapter, get_chapter_originals,
+    get_ketiv_qere, get_notes, get_preference, get_strongs_greek, get_strongs_hebrew, get_verse,
+    get_verse_words, populate_terms_fts, search_notes, search_terms, search_verses, set_preference,
+    update_note,
+};
+
+pub use database::Database;
+
+pub struct AppState {
+    pub db: Database,
+}
+
+/// Resolve the app data directory. Returns ~/.local/share/logos on Unix.
+fn get_app_data_dir() -> PathBuf {
+    if let Some(proj_dirs) = ProjectDirs::from("com", "logos", "Logos") {
+        proj_dirs.data_dir().to_path_buf()
+    } else {
+        // Fallback
+        let mut path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
+        path.push("logos");
+        path
+    }
+}
+
+fn setup_logging(app_data_dir: &PathBuf) {
+    let logs_dir = app_data_dir.join("logs");
+    let _ = std::fs::create_dir_all(&logs_dir);
+
+    let file_appender = tracing_appender::rolling::daily(&logs_dir, "logos.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    // Keep the guard alive for the lifetime of the app by leaking it
+    std::mem::forget(_guard);
+
+    tracing_subscriber::fmt()
+        .with_max_level(Level::INFO)
+        .with_span_events(FmtSpan::CLOSE)
+        .with_writer(non_blocking)
+        .with_ansi(false)
+        .init();
+
+    info!("Logos v{} starting up", env!("CARGO_PKG_VERSION"));
+    info!("App data directory: {:?}", app_data_dir);
+}
+
+fn init_app_state() -> Result<AppState, String> {
+    let app_data_dir = get_app_data_dir();
+    setup_logging(&app_data_dir);
+
+    // Ensure directory exists
+    std::fs::create_dir_all(&app_data_dir).map_err(|e| {
+        error!("Failed to create app data directory: {}", e);
+        e.to_string()
+    })?;
+
+    info!("Initializing database at {:?}", app_data_dir.join("logos.db"));
+    let db = Database::new(&app_data_dir).map_err(|e| {
+        error!("Failed to initialize database: {}", e);
+        e.to_string()
+    })?;
+
+    Ok(AppState { db })
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let app_state = match init_app_state() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("FATAL: Failed to initialize app state: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(app_state.db)
+        .invoke_handler(tauri::generate_handler![
+            get_verse,
+            get_chapter,
+            get_book_index,
+            search_verses,
+            search_terms,
+            create_bookmark,
+            get_bookmarks,
+            delete_bookmark,
+            create_note,
+            get_notes,
+            update_note,
+            delete_note,
+            search_notes,
+            export_notes_and_bookmarks,
+            get_strongs_greek,
+            get_strongs_hebrew,
+            get_verse_words,
+            get_chapter_originals,
+            get_ketiv_qere,
+            get_preference,
+            set_preference,
+            compare_verses,
+            populate_terms_fts,
+            ai_chat,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

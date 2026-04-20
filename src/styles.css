@@ -1,0 +1,208 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,600;1,400&family=Noto+Serif:ital,wght@0,400;0,600;1,400&family=Noto+Serif+Hebrew:wght@400;600&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --color-cream: #fefce8;
+  --color-cream-dark: #1a1a14;
+  --color-surface: #ffffff;
+  --color-surface-dark: #252519;
+  --color-text-primary: #292524;
+  --color-text-primary-dark: #f5f5f4;
+  --color-text-muted: #78716c;
+  --color-text-muted-dark: #a8a29e;
+  --color-accent: #92400e;
+  --color-accent-hover: #78350f;
+  --color-accent-light: #fef3c7;
+  --color-border: #e7e5e4;
+  --color-border-dark: #3c3a36;
+  --color-greek: #1d4ed8;
+  --color-hebrew: #15803d;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-serif: 'Lora', Georgia, serif;
+  --font-greek: 'Noto Serif', Georgia, serif;
+  --font-hebrew: 'Noto Serif Hebrew', serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+#root {
+  height: 100%;
+}
+
+/* Light mode defaults */
+body {
+  background-color: #fefce8;
+  color: #292524;
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Dark mode */
+html.dark body {
+  background-color: #1a1a14;
+  color: #f5f5f4;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+/* Typography */
+.font-bible {
+  font-family: 'Lora', Georgia, serif;
+  font-size: 1.125rem;
+  line-height: 1.75;
+}
+
+.font-greek {
+  font-family: 'Noto Serif', Georgia, serif;
+  color: #1d4ed8;
+}
+
+.font-hebrew {
+  font-family: 'Noto Serif Hebrew', Georgia, serif;
+  color: #15803d;
+}
+
+/* Verse number superscript */
+.verse-number {
+  font-size: 0.7em;
+  vertical-align: super;
+  font-weight: 600;
+  margin-right: 0.1em;
+  opacity: 0.6;
+}
+
+/* Verse active state */
+.verse-active {
+  background-color: #fef3c7;
+  border-radius: 4px;
+}
+
+html.dark .verse-active {
+  background-color: #78350f40;
+}
+
+/* Strong's word hover */
+.word-clickable {
+  cursor: pointer;
+  border-radius: 2px;
+  padding: 0 1px;
+  transition: background-color 0.15s;
+}
+
+.word-clickable:hover {
+  background-color: #fef3c7;
+}
+
+html.dark .word-clickable:hover {
+  background-color: #78350f40;
+}
+
+/* Sidebar */
+.sidebar-section-header {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #78716c;
+  padding: 0.75rem 0.75rem 0.25rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+html.dark .sidebar-section-header {
+  color: #a8a29e;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d6d3d1;
+  border-radius: 3px;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: #44403c;
+}
+
+/* Pill/tag */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+
+/* Verse reference */
+.verse-ref {
+  font-family: 'Inter', ui-sans-serif, sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #78716c;
+}
+
+html.dark .verse-ref {
+  color: #a8a29e;
+}
+
+/* Modal backdrop */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Modal panel */
+.modal-panel {
+  background: #ffffff;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  max-width: 32rem;
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+html.dark .modal-panel {
+  background: #252519;
+  border: 1px solid #3c3a36;
+}
+
+/* Search highlight */
+.search-highlight {
+  background-color: #fef08a;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+html.dark .search-highlight {
+  background-color: #78350f80;
+}

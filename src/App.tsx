@@ -1,0 +1,754 @@
+import { useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
+import { useAppStore } from './store/useAppStore';
+import { Header } from './components/Header';
+import { Sidebar } from './components/Sidebar';
+import { ReadingPage } from './pages/ReadingPage';
+import { SearchPage } from './pages/SearchPage';
+import Settings from './pages/Settings';
+import Compare from './pages/Compare';
+import Lexicon from './pages/Lexicon';
+import { getBookmarks, deleteBookmark, getNotes, deleteNote, getStrongsHebrew, getStrongsGreek, createBookmark } from './api';
+import { NoteForm } from './components/NoteForm';
+import { AiPanel, type WordContext } from './components/AiPanel';
+import type { BookmarkWithVerse, Note as TauriNote } from './lib/tauri';
+import { invoke } from '@tauri-apps/api/core';
+
+function AppInner() {
+  const navigate = useNavigate();
+  const { darkMode, setSidebarOpen, currentBook, currentChapter, bookmarks } = useAppStore();
+  const [showSettings, setShowSettings] = useState(false);
+  const [showBookmarks, setShowBookmarks] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
+  const [showStrongsPopup, setShowStrongsPopup] = useState<{ word: string; strongsId: string; language: string } | null>(null);
+  const [showAiPanel, setShowAiPanel] = useState(false);
+  const [aiWordContext, setAiWordContext] = useState<WordContext | undefined>(undefined);
+  const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
+
+  // Get chapter verse counts
+  const chapterCounts: Record<string, number> = { gen: 50, exod: 40, lev: 27, num: 36, deut: 34, josh: 24, '1sam': 31, '2sam': 24, '1kgs': 22, '2kgs': 25, '1chr': 29, '2chr': 36, ezra: 10, neh: 13, est: 10, job: 42, ps: 150, prov: 31, eccl: 12, song: 8, isa: 66, jer: 52, lam: 5, ezek: 48, dan: 12, hosea: 14, joel: 3, amos: 9, jonah: 4, mic: 7, nah: 3, hab: 3, zeph: 3, hag: 2, zech: 14, mal: 4, matt: 28, mark: 16, luke: 24, john: 21, acts: 28, rom: 16, '1cor': 16, '2cor': 13, gal: 6, eph: 6, phil: 4, col: 4, '1thess': 5, '2thess': 3, '1tim': 6, '2tim': 4, titus: 3, phlm: 1, heb: 13, jas: 5, '1pet': 5, '2pet': 3, '1john': 5, '2john': 1, '3john': 1, jude: 1, rev: 22, ruth: 4, obad: 1 };
+
+  const handleNextChapter = () => {
+    const count = chapterCounts[currentBook] || 1;
+    if (currentChapter < count) {
+      useAppStore.getState().setChapter(currentChapter + 1);
+    }
+  };
+
+  const handlePrevChapter = () => {
+    if (currentBook === 'gen' && currentChapter === 1) return;
+    if (currentChapter > 1) {
+      useAppStore.getState().setChapter(currentChapter - 1);
+    } else {
+      const books = ['gen', 'exod', 'lev', 'num', 'deut', 'josh', 'judg', 'ruth', '1sam', '2sam', '1kgs', '2kgs', '1chr', '2chr', 'ezra', 'neh', 'est', 'job', 'ps', 'prov', 'eccl', 'song', 'isa', 'jer', 'lam', 'ezek', 'dan', 'hosea', 'joel', 'amos', 'obad', 'jonah', 'mic', 'nah', 'hab', 'zeph', 'hag', 'zech', 'mal', 'matt', 'mark', 'luke', 'john', 'acts', 'rom', '1cor', '2cor', 'gal', 'eph', 'phil', 'col', '1thess', '2thess', '1tim', '2tim', 'titus', 'phlm', 'heb', 'jas', '1pet', '2pet', '1john', '2john', '3john', 'jude', 'rev'];
+      const idx = books.indexOf(currentBook);
+      if (idx > 0) {
+        const prevBook = books[idx - 1];
+        useAppStore.getState().setBook(prevBook);
+        useAppStore.getState().setChapter(1);
+      }
+    }
+  };
+
+  const toggleCurrentBookmark = async () => {
+    try {
+      // Get current verse (first verse of chapter for simplicity)
+      const chapterData = await invoke<any[]>('get_chapter', { 
+        book: currentBook, 
+        chapter: currentChapter, 
+        translations: ['KJV'] 
+      });
+      if (chapterData && chapterData.length > 0 && chapterData[0].verses && chapterData[0].verses.length > 0) {
+        const firstVerse = chapterData[0].verses[0];
+        const isBookmarked = bookmarks.some(b => b.verse_id === firstVerse.id);
+        if (isBookmarked) {
+          const bm = bookmarks.find(b => b.verse_id === firstVerse.id);
+          if (bm) {
+            await deleteBookmark(bm.id);
+            useAppStore.getState().removeBookmark(bm.id);
+          }
+        } else {
+          const newBm = await createBookmark(firstVerse.id);
+          useAppStore.getState().addBookmark({
+            ...newBm,
+            book_abbreviation: firstVerse.book_abbreviation,
+            chapter: firstVerse.chapter,
+            verse_num: firstVerse.verse_num,
+            text: firstVerse.text,
+            translation_abbreviation: firstVerse.translation_abbreviation || 'KJV',
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Failed to toggle bookmark:', e);
+    }
+  };
+
+  // Keyboard shortcuts handler
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger shortcuts when typing in inputs/textareas
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        if (e.key === 'Escape') {
+          // Allow Escape to close modals even in inputs
+        } else {
+          return;
+        }
+      }
+
+      switch (e.key) {
+        case 'j':
+        case 'ArrowRight':
+          e.preventDefault();
+          handleNextChapter();
+          break;
+        case 'k':
+        case 'ArrowLeft':
+          e.preventDefault();
+          handlePrevChapter();
+          break;
+        case 'b':
+          e.preventDefault();
+          toggleCurrentBookmark();
+          break;
+        case '/':
+          e.preventDefault();
+          navigate('/search');
+          // Focus search input after navigation
+          setTimeout(() => {
+            const input = document.querySelector('input[type="search"], input[placeholder*="Search"]') as HTMLInputElement;
+            if (input) input.focus();
+          }, 100);
+          break;
+        case 'Escape':
+          e.preventDefault();
+          if (showKeyboardHelp) {
+            setShowKeyboardHelp(false);
+          } else if (showStrongsPopup) {
+            setShowStrongsPopup(null);
+          } else if (showAiPanel) {
+            setShowAiPanel(false);
+          } else if (showNotes) {
+            setShowNotes(false);
+          } else if (showBookmarks) {
+            setShowBookmarks(false);
+          } else if (showSettings) {
+            setShowSettings(false);
+          }
+          break;
+        case 'n':
+          if (!e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            setShowNotes(prev => !prev);
+          }
+          break;
+        case '?':
+          e.preventDefault();
+          setShowKeyboardHelp(prev => !prev);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentBook, currentChapter, navigate, showSettings, showBookmarks, showNotes, showStrongsPopup, showAiPanel, showKeyboardHelp, bookmarks]);
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [darkMode]);
+
+  return (
+    <BrowserRouter>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100vh',
+          backgroundColor: darkMode ? '#1a1a14' : '#fefce8',
+          color: darkMode ? '#f5f5f4' : '#292524',
+        }}
+      >
+        <Header
+          onOpenSettings={() => setShowSettings(true)}
+          onOpenBookmarks={() => setShowBookmarks(true)}
+          onOpenNotes={() => setShowNotes(true)}
+          onOpenCompare={() => navigate('/compare')}
+          onOpenLexicon={() => navigate('/lexicon')}
+        />
+
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+          <Sidebar
+            onSelectBook={(book) => {
+              useAppStore.getState().setBook(book);
+              setSidebarOpen(false);
+            }}
+            onSelectChapter={(chapter) => {
+              useAppStore.getState().setChapter(chapter);
+            }}
+          />
+
+          <main style={{ flex: 1, overflowY: 'auto', display: 'flex' }}>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              <Routes>
+                <Route
+                  path="/"
+                  element={
+                    <ReadingPage onOpenAi={() => setShowAiPanel(true)} />
+                  }
+                />
+                <Route path="/search" element={<SearchPage />} />
+                <Route path="/lexicon" element={<Lexicon />} />
+                <Route path="/compare" element={<Compare />} />
+                <Route path="/settings" element={<Settings />} />
+              </Routes>
+            </div>
+            {showAiPanel && (
+              <div style={{ width: '380px', flexShrink: 0, borderLeft: darkMode ? '1px solid #3c3a36' : '1px solid #e7e5e4', display: 'flex', flexDirection: 'column' }}>
+                <AiPanel
+                  verses={[]}
+                  wordContext={aiWordContext}
+                  onClose={() => { setShowAiPanel(false); setAiWordContext(undefined); }}
+                />
+              </div>
+            )}
+          </main>
+        </div>
+
+        {/* Settings Modal */}
+        {showSettings && (
+          <SettingsModal darkMode={darkMode} onClose={() => setShowSettings(false)} />
+        )}
+
+        {/* Bookmarks Panel */}
+        {showBookmarks && (
+          <BookmarkPanelModal darkMode={darkMode} onClose={() => setShowBookmarks(false)} />
+        )}
+
+        {/* Notes Panel */}
+        {showNotes && (
+          <NotesPanelModal darkMode={darkMode} onClose={() => setShowNotes(false)} />
+        )}
+
+        {/* Strongs Popup */}
+        {showStrongsPopup && (
+          <StrongsPopupModal data={showStrongsPopup} darkMode={darkMode} onClose={() => setShowStrongsPopup(null)} onOpenAi={(wordContext) => { setShowStrongsPopup(null); setAiWordContext(wordContext); setShowAiPanel(true); }} />
+        )}
+
+        {/* Keyboard Shortcuts Help Modal */}
+        {showKeyboardHelp && (
+          <div className="modal-backdrop" onClick={() => setShowKeyboardHelp(false)}>
+            <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '24rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h2 style={{ margin: 0, fontWeight: 700 }}>Keyboard Shortcuts</h2>
+                <button onClick={() => setShowKeyboardHelp(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                </button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.875rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>
+                  <span>Next chapter</span>
+                  <kbd style={{ padding: '0.125rem 0.5rem', borderRadius: '4px', backgroundColor: darkMode ? '#252519' : '#f5f5f4', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>j</kbd>
+                  <kbd style={{ padding: '0.125rem 0.5rem', borderRadius: '4px', backgroundColor: darkMode ? '#252519' : '#f5f5f4', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>→</kbd>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>
+                  <span>Previous chapter</span>
+                  <kbd style={{ padding: '0.125rem 0.5rem', borderRadius: '4px', backgroundColor: darkMode ? '#252519' : '#f5f5f4', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>k</kbd>
+                  <kbd style={{ padding: '0.125rem 0.5rem', borderRadius: '4px', backgroundColor: darkMode ? '#252519' : '#f5f5f4', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>←</kbd>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>
+                  <span>Toggle bookmark</span>
+                  <kbd style={{ padding: '0.125rem 0.5rem', borderRadius: '4px', backgroundColor: darkMode ? '#252519' : '#f5f5f4', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>b</kbd>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>
+                  <span>Search</span>
+                  <kbd style={{ padding: '0.125rem 0.5rem', borderRadius: '4px', backgroundColor: darkMode ? '#252519' : '#f5f5f4', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>/</kbd>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>
+                  <span>Toggle notes panel</span>
+                  <kbd style={{ padding: '0.125rem 0.5rem', borderRadius: '4px', backgroundColor: darkMode ? '#252519' : '#f5f5f4', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>n</kbd>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>
+                  <span>Close modal/panel</span>
+                  <kbd style={{ padding: '0.125rem 0.5rem', borderRadius: '4px', backgroundColor: darkMode ? '#252519' : '#f5f5f4', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>Esc</kbd>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0' }}>
+                  <span>Show this help</span>
+                  <kbd style={{ padding: '0.125rem 0.5rem', borderRadius: '4px', backgroundColor: darkMode ? '#252519' : '#f5f5f4', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>?</kbd>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </BrowserRouter>
+  );
+}
+
+export default function App() {
+  return <AppInner />;
+}
+
+// Inline modals to avoid separate file overhead
+function SettingsModal({ darkMode, onClose }: { darkMode: boolean; onClose: () => void }) {
+  const navigate = useNavigate();
+  const { fontSize, setFontSize, toggleDarkMode } = useAppStore();
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '28rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+          <h2 style={{ margin: 0, fontWeight: 700 }}>Settings</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          <div>
+            <h3 style={{ margin: '0 0 0.75rem', fontSize: '0.875rem', fontWeight: 600 }}>Appearance</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.875rem' }}>Dark mode</span>
+              <button onClick={toggleDarkMode} style={{ padding: '0.375rem 1rem', borderRadius: '9999px', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}`, backgroundColor: darkMode ? '#252519' : '#fff', color: darkMode ? '#f5f5f4' : '#292524', cursor: 'pointer', fontSize: '0.875rem' }}>
+                {darkMode ? 'On' : 'Off'}
+              </button>
+            </div>
+            <div style={{ marginTop: '0.75rem' }}>
+              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.875rem' }}>
+                Font size: <span style={{ fontWeight: 600 }}>{fontSize}px</span>
+              </label>
+              <input type="range" min={14} max={28} value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} style={{ width: '100%', marginTop: '0.5rem' }} />
+            </div>
+          </div>
+
+          <div>
+            <h3 style={{ margin: '0 0 0.75rem', fontSize: '0.875rem', fontWeight: 600 }}>AI Provider</h3>
+            <p style={{ fontSize: '0.75rem', color: darkMode ? '#a8a29e' : '#78716c', margin: '0 0 0.75rem' }}>AI settings are managed on the full Settings page.</p>
+            <button
+              onClick={() => { onClose(); navigate('/settings'); }}
+              style={{ padding: '0.5rem 1.25rem', borderRadius: '8px', border: 'none', backgroundColor: '#92400e', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' }}
+            >
+              Open Settings
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BookmarkPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose: () => void }) {
+  const [bookmarks, setBookmarks] = useState<BookmarkWithVerse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchBookmarks = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await getBookmarks();
+      setBookmarks(data);
+    } catch (e) {
+      setError('Failed to load bookmarks.');
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchBookmarks(); }, []);
+
+  const handleDelete = async (id: number) => {
+    try {
+      await deleteBookmark(id);
+      await fetchBookmarks();
+    } catch (e) {
+      console.error('Failed to delete bookmark:', e);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '28rem', maxHeight: '80vh' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <h2 style={{ margin: 0, fontWeight: 700 }}>Bookmarks ({bookmarks.length})</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
+        </div>
+        {loading ? (
+          <p style={{ textAlign: 'center', padding: '2rem', color: darkMode ? '#a8a29e' : '#78716c' }}>Loading…</p>
+        ) : error ? (
+          <p style={{ textAlign: 'center', padding: '2rem', color: '#dc2626' }}>{error}</p>
+        ) : bookmarks.length === 0 ? (
+          <p style={{ textAlign: 'center', padding: '2rem', color: darkMode ? '#a8a29e' : '#78716c' }}>No bookmarks yet.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '60vh', overflowY: 'auto' }}>
+            {bookmarks.map((bm) => (
+              <div key={bm.id} style={{ padding: '0.75rem', borderRadius: '8px', backgroundColor: darkMode ? '#1a1a14' : '#fefce8', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span className="verse-ref">{bm.verse.book_abbreviation.toUpperCase()} {bm.verse.chapter}:{bm.verse.verse_num}</span>
+                  <button onClick={() => handleDelete(bm.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>Delete</button>
+                </div>
+                {bm.label && <p style={{ margin: '0.25rem 0 0', fontWeight: 600, fontSize: '0.85rem' }}>{bm.label}</p>}
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: darkMode ? '#a8a29e' : '#78716c', fontFamily: "'Lora', serif" }}>{bm.verse.text.slice(0, 100)}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NotesPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose: () => void }) {
+  const [notes, setNotes] = useState<TauriNote[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [editingNote, setEditingNote] = useState<TauriNote | null>(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showExportMenu, setShowExportMenu] = useState(false);
+
+  const fetchNotes = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await getNotes();
+      setNotes(data);
+    } catch (e) {
+      setError('Failed to load notes.');
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchNotes(); }, []);
+
+  const handleDelete = async (id: number) => {
+    try {
+      await deleteNote(id);
+      setNotes((prev) => prev.filter((n) => n.id !== id));
+    } catch (e) {
+      console.error('Failed to delete note:', e);
+    }
+  };
+
+  const handleNoteSuccess = (saved: TauriNote) => {
+    if (editingNote) {
+      setNotes((prev) => prev.map((n) => (n.id === saved.id ? saved : n)));
+      setEditingNote(null);
+    } else {
+      setNotes((prev) => [saved, ...prev]);
+      setShowCreateForm(false);
+    }
+  };
+
+  // Filter notes based on search query
+  const filteredNotes = searchQuery.trim()
+    ? notes.filter(note => {
+        const query = searchQuery.toLowerCase();
+        const titleMatch = note.title?.toLowerCase().includes(query) ?? false;
+        const contentMatch = note.content.toLowerCase().includes(query);
+        const tagsMatch = note.tags?.some(tag => tag.toLowerCase().includes(query)) ?? false;
+        return titleMatch || contentMatch || tagsMatch;
+      })
+    : notes;
+
+  // Handle export
+  const handleExport = async (format: 'json' | 'csv') => {
+    try {
+      setShowExportMenu(false);
+      const data = await invoke<any>('export_notes_and_bookmarks');
+      
+      if (format === 'json') {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `logos-export-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } else {
+        // CSV export
+        const lines: string[] = [];
+        lines.push('Type,ID,Title,Content,Tags,Verse Reference,Created,Updated');
+        
+        for (const note of data.notes) {
+          const title = (note.title || '').replace(/"/g, '""');
+          const content = (note.content || '').replace(/"/g, '""');
+          const tags = (note.tags || []).join('; ');
+          const verseRef = note.verse_ref || '';
+          lines.push(`Note,${note.id},"${title}","${content}","${tags}","${verseRef}",${note.created_at},${note.updated_at}`);
+        }
+        
+        for (const bm of data.bookmarks) {
+          const label = (bm.label || '').replace(/"/g, '""');
+          const verseText = (bm.verse_text || '').replace(/"/g, '""');
+          lines.push(`Bookmark,${bm.id},"${label}","${verseText}","","${bm.verse_ref}",${bm.created_at},`);
+        }
+        
+        const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `logos-export-${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    } catch (e) {
+      console.error('Failed to export:', e);
+      alert('Failed to export data.');
+    }
+  };
+
+  // Render create/edit form
+  if (showCreateForm || editingNote) {
+    return (
+      <div className="modal-backdrop" onClick={onClose}>
+        <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '32rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h2 style={{ margin: 0, fontWeight: 700 }}>{editingNote ? 'Edit Note' : 'New Note'}</h2>
+            <button onClick={() => { setShowCreateForm(false); setEditingNote(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+            </button>
+          </div>
+          <NoteForm
+            note={editingNote ?? undefined}
+            verseId={null}
+            onSuccess={handleNoteSuccess}
+            onCancel={() => { setShowCreateForm(false); setEditingNote(null); }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '32rem', maxHeight: '80vh' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <h2 style={{ margin: 0, fontWeight: 700 }}>Notes ({filteredNotes.length}{searchQuery ? ` of ${notes.length}` : ''})</h2>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            {/* Export dropdown */}
+            <div style={{ position: 'relative' }}>
+              <button 
+                onClick={() => setShowExportMenu(!showExportMenu)} 
+                style={{ padding: '0.375rem 0.75rem', borderRadius: '8px', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}`, backgroundColor: 'transparent', color: darkMode ? '#f5f5f4' : '#292524', cursor: 'pointer', fontWeight: 600, fontSize: '0.75rem' }}
+              >
+                Export ▾
+              </button>
+              {showExportMenu && (
+                <div style={{ 
+                  position: 'absolute', 
+                  top: '100%', 
+                  right: 0, 
+                  marginTop: '0.25rem',
+                  backgroundColor: darkMode ? '#252519' : '#fff',
+                  border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}`,
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+                  zIndex: 10,
+                  minWidth: '120px'
+                }}>
+                  <button 
+                    onClick={() => handleExport('json')}
+                    style={{ 
+                      display: 'block', 
+                      width: '100%', 
+                      padding: '0.5rem 0.75rem', 
+                      textAlign: 'left',
+                      background: 'none', 
+                      border: 'none', 
+                      cursor: 'pointer', 
+                      color: darkMode ? '#f5f5f4' : '#292524',
+                      fontSize: '0.8rem'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = darkMode ? '#3c3a36' : '#f5f5f4'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                  >
+                    Export as JSON
+                  </button>
+                  <button 
+                    onClick={() => handleExport('csv')}
+                    style={{ 
+                      display: 'block', 
+                      width: '100%', 
+                      padding: '0.5rem 0.75rem', 
+                      textAlign: 'left',
+                      background: 'none', 
+                      border: 'none', 
+                      cursor: 'pointer', 
+                      color: darkMode ? '#f5f5f4' : '#292524',
+                      fontSize: '0.8rem'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = darkMode ? '#3c3a36' : '#f5f5f4'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                  >
+                    Export as CSV
+                  </button>
+                </div>
+              )}
+            </div>
+            <button onClick={() => setShowCreateForm(true)} style={{ padding: '0.375rem 0.75rem', borderRadius: '8px', border: 'none', backgroundColor: '#92400e', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '0.75rem' }}>
+              + New Note
+            </button>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+            </button>
+          </div>
+        </div>
+        
+        {/* Search input */}
+        <div style={{ marginBottom: '1rem' }}>
+          <input
+            type="text"
+            placeholder="Search notes..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '0.5rem 0.75rem',
+              borderRadius: '8px',
+              border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}`,
+              backgroundColor: darkMode ? '#1a1a14' : '#fff',
+              color: darkMode ? '#f5f5f4' : '#292524',
+              fontSize: '0.875rem',
+              boxSizing: 'border-box'
+            }}
+          />
+        </div>
+        
+        {loading ? (
+          <p style={{ textAlign: 'center', padding: '2rem', color: darkMode ? '#a8a29e' : '#78716c' }}>Loading…</p>
+        ) : error ? (
+          <p style={{ textAlign: 'center', padding: '2rem', color: '#dc2626' }}>{error}</p>
+        ) : filteredNotes.length === 0 ? (
+          searchQuery ? (
+            <p style={{ textAlign: 'center', padding: '2rem', color: darkMode ? '#a8a29e' : '#78716c' }}>No notes match your search.</p>
+          ) : (
+            <p style={{ textAlign: 'center', padding: '2rem', color: darkMode ? '#a8a29e' : '#78716c' }}>No notes yet. Click "+ New Note" to create one.</p>
+          )
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '50vh', overflowY: 'auto' }}>
+            {filteredNotes.map((note) => (
+              <div key={note.id} style={{ padding: '0.875rem', borderRadius: '8px', backgroundColor: darkMode ? '#1a1a14' : '#fefce8', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.375rem' }}>
+                  <h3 style={{ margin: 0, fontWeight: 600, fontSize: '0.9rem' }}>{note.title || 'Untitled'}</h3>
+                  <div style={{ display: 'flex', gap: '0.375rem' }}>
+                    <button onClick={() => setEditingNote(note)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c', fontSize: '0.75rem' }}>Edit</button>
+                    <button onClick={() => handleDelete(note.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: '0.75rem' }}>Delete</button>
+                  </div>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.85rem', color: darkMode ? '#a8a29e' : '#78716c', lineHeight: 1.5 }}>{note.content}</p>
+                {(note.tags ?? []).length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.5rem' }}>
+                    {(note.tags ?? []).map((tag) => (
+                      <span key={tag} style={{ fontSize: '0.65rem', padding: '0.125rem 0.5rem', borderRadius: '9999px', backgroundColor: darkMode ? '#2d2d24' : '#f5f5f4', color: darkMode ? '#a8a29e' : '#78716c' }}>#{tag}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StrongsPopupModal({ data, darkMode, onClose, onOpenAi }: { data: { word: string; strongsId: string; language: string }; darkMode: boolean; onClose: () => void; onOpenAi: (wordContext: WordContext) => void }) {
+  const [loading, setLoading] = useState(true);
+  const [entry, setEntry] = useState<import('./lib/tauri').StrongsHebrew | import('./lib/tauri').StrongsGreek | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetch = async () => {
+      try {
+        setLoading(true);
+        setFetchError(null);
+        const result = data.language === 'hebrew'
+          ? await getStrongsHebrew(data.strongsId)
+          : await getStrongsGreek(data.strongsId);
+        if (!cancelled) setEntry(result);
+      } catch (e) {
+        if (!cancelled) setFetchError('Failed to load lexicon entry.');
+        console.error(e);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    fetch();
+    return () => { cancelled = true; };
+  }, [data.strongsId, data.language]);
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '28rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+          <h2 style={{ margin: 0, fontWeight: 700, fontFamily: data.language === 'hebrew' ? "'Noto Serif Hebrew', serif" : "'Noto Serif', serif", fontSize: '1.5rem', color: data.language === 'hebrew' ? '#15803d' : '#1d4ed8' }}>
+            {loading ? '…' : entry ? entry.word : data.word}
+          </h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
+        </div>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '2rem' }}>
+            <svg style={{ animation: 'spin 1s linear infinite', color: data.language === 'hebrew' ? '#15803d' : '#1d4ed8' }} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 2a10 10 0 0 1 10 10" />
+            </svg>
+            <p style={{ marginTop: '0.5rem', color: darkMode ? '#a8a29e' : '#78716c', fontSize: '0.875rem' }}>Loading entry…</p>
+          </div>
+        ) : fetchError ? (
+          <p style={{ color: '#dc2626' }}>{fetchError}</p>
+        ) : entry ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <span style={{ fontSize: '0.8rem', padding: '0.25rem 0.625rem', borderRadius: '9999px', backgroundColor: darkMode ? '#2d2d24' : '#f5f5f4', color: darkMode ? '#a8a29e' : '#78716c', fontWeight: 600 }}>
+                {data.strongsId}
+              </span>
+              {entry.transliteration && (
+                <span style={{ fontSize: '0.8rem', color: darkMode ? '#a8a29e' : '#78716c', fontStyle: 'italic' }}>
+                  {entry.transliteration}
+                </span>
+              )}
+            </div>
+            <div>
+              <p style={{ margin: 0, fontSize: '0.8rem', color: darkMode ? '#a8a29e' : '#78716c', fontWeight: 600, marginBottom: '0.25rem' }}>Definition</p>
+              <p style={{ margin: 0, fontSize: '0.9rem', lineHeight: 1.6 }}>{entry.definition}</p>
+            </div>
+            {entry.pronunciation && (
+              <div>
+                <p style={{ margin: 0, fontSize: '0.8rem', color: darkMode ? '#a8a29e' : '#78716c', fontWeight: 600, marginBottom: '0.25rem' }}>Pronunciation</p>
+                <p style={{ margin: 0, fontSize: '0.9rem', fontStyle: 'italic' }}>{entry.pronunciation}</p>
+              </div>
+            )}
+            <button
+              onClick={() => onOpenAi({
+                word: data.word,
+                strongsId: data.strongsId,
+                language: data.language as 'hebrew' | 'greek',
+                transliteration: entry?.transliteration,
+                definition: entry?.definition,
+              })}
+              style={{ marginTop: '0.5rem', padding: '0.5rem 1rem', borderRadius: '8px', border: 'none', backgroundColor: '#92400e', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' }}
+            >
+              Ask AI About This Word
+            </button>
+          </div>
+        ) : (
+          <p style={{ color: darkMode ? '#a8a29e' : '#78716c' }}>Lexicon entry not found for {data.strongsId}</p>
+        )}
+      </div>
+    </div>
+  );
+}
