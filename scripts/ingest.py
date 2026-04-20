@@ -5,7 +5,10 @@ Logos Bible Data Ingestion Script
 Downloads and ingests Bible text data into the Logos SQLite database.
 Run with: python3 scripts/ingest.py [--db-path PATH] [--sample] [--kjv-only] [--skip-greek] [--skip-hebrew]
 
-Default database path: ~/.local/share/logos/logos.db
+Default database paths:
+  - Linux:   ~/.local/share/logos/logos.db
+  - macOS:   ~/Library/Application Support/Logos/logos.db
+  - Windows: %LOCALAPPDATA%/Logos Bible/logos.db
 """
 
 import sqlite3
@@ -16,6 +19,7 @@ import re
 import argparse
 import os
 import sys
+import platform
 from pathlib import Path
 
 # --- KJV: farskipper/kjv JSON ---
@@ -149,7 +153,14 @@ SEFARIA_BOOK_MAP = {
 
 
 def get_default_db_path() -> Path:
-    return Path.home() / ".local" / "share" / "logos" / "logos.db"
+    system = platform.system()
+    if system == "Windows":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        return base / "Logos Bible" / "logos.db"
+    elif system == "Darwin":
+        return Path.home() / "Library" / "Application Support" / "Logos" / "logos.db"
+    else:
+        return Path.home() / ".local" / "share" / "logos" / "logos.db"
 
 
 def fetch_url(url: str, timeout: int = 30) -> bytes | None:

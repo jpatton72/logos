@@ -64,7 +64,26 @@ fn init_app_state() -> Result<AppState, String> {
         e.to_string()
     })?;
 
-    info!("Initializing database at {:?}", app_data_dir.join("logos.db"));
+    // Seed user DB from bundled copy on first run if DB is missing or empty
+    let db_path = app_data_dir.join("logos.db");
+    let needs_seed = !db_path.exists()
+        || db_path.metadata().map(|m| m.len() == 0).unwrap_or(false);
+    if needs_seed {
+        if let Ok(exe) = std::env::current_exe() {
+            let bundle_root = exe.parent().unwrap_or(&exe);
+            let bundled = bundle_root.join("logos.db");
+            if bundled.exists() {
+                match std::fs::copy(&bundled, &db_path) {
+                    Ok(_) => info!("Seeded bundled database to {:?}", db_path),
+                    Err(e) => info!("No bundled DB available or copy failed: {}", e),
+                }
+            } else {
+                info!("Bundled logos.db not found at {:?}", bundled);
+            }
+        }
+    }
+
+    info!("Initializing database at {:?}", db_path);
     let db = Database::new(&app_data_dir).map_err(|e| {
         error!("Failed to initialize database: {}", e);
         e.to_string()

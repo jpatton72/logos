@@ -327,6 +327,9 @@ logos/
 - [x] Export notes/bookmarks (see TASKS.md Task 3)
 - [ ] Performance optimization
 - [x] App icon, installer (custom SVG-based icons generated via generate_icon.py)
+- [x] NSIS + MSI Windows installer configured in tauri.conf.json (targets: nsis, msi)
+- [x] Pre-bundled 47 MB logos.db shipped with installer; seeded on first run if user DB is missing
+- [x] Cross-platform path helpers in all ingest scripts (Windows: %LOCALAPPDATA%, macOS: ~/Library/Application Support, Linux: ~/.local/share)
 - [x] Auto-updates configured (tauri-plugin-updater = "2" in Cargo.toml, placeholder endpoint/pubkey in tauri.conf.json; DISABLED in current dev env due to container build restrictions — re-enable in production build)
 
 ## Verification Criteria

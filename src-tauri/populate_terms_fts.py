@@ -8,11 +8,21 @@ This replicates the logic from src/database/queries.rs:populate_terms_fts:
 2. Insert into terms_fts(term, verse_count, translation_id=0)
 """
 
-import sqlite3, re, os
+import sqlite3, re, os, platform
 from pathlib import Path
 
-HERMES_HOME = os.environ.get('HERMES_HOME', '/home/jean-galt/.local/share/logos')
-DB_PATH = Path(HERMES_HOME) / 'logos.db'
+def get_default_db_path() -> Path:
+    system = platform.system()
+    if system == "Windows":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        return base / "Logos Bible" / "logos.db"
+    elif system == "Darwin":
+        return Path.home() / "Library" / "Application Support" / "Logos" / "logos.db"
+    else:
+        return Path.home() / ".local" / "share" / "logos" / "logos.db"
+
+HERMES_HOME = os.environ.get('HERMES_HOME', str(get_default_db_path().parent))
+DB_PATH = get_default_db_path()
 
 WORD_RE = re.compile(r'[a-zA-Z]{2,}')
 

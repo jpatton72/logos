@@ -28,7 +28,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis", "msi"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -40,14 +40,14 @@
     "shortDescription": "Scholarly Bible study application with original languages and AI assistance",
     "longDescription": "Logos is a desktop Bible study application featuring the full Hebrew and Greek original texts, side-by-side translation comparison, Strong's Concordance integration, morphological analysis, personal notes and bookmarks, and AI-powered study assistance.",
     "copyright": "2025",
-    "publisher": "Logos"
-  },
-  "plugins": {
-    "updater": {
-      "endpoints": [
-        "https://your-update-server.com/{{target}}/{{arch}}/{{current_version}}"
-      ],
-      "pubkey": "YOUR_SIGNING_PUBLIC_KEY_PLACEHOLDER"
+    "publisher": "Logos",
+    "resources": {
+      "logos.db": "logos.db"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
     }
   }
 }

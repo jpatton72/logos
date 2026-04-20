@@ -23,12 +23,26 @@ Target DB schema (current):
     word_mappings(id, verse_id, word_index, strongs_id, original_word, lemma, morphology, language)
 """
 
-import sqlite3, os, re
+import sqlite3, os, re, platform
 from pathlib import Path
 
-HERMES_HOME = os.environ.get('HERMES_HOME', '/home/jean-galt/.local/share/logos')
-DB_PATH = Path(HERMES_HOME) / 'logos.db'
-DATA_DIR = Path('/home/jean-galt/logos/public/morphgnt')
+def get_default_db_path() -> Path:
+    system = platform.system()
+    if system == "Windows":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        return base / "Logos Bible" / "logos.db"
+    elif system == "Darwin":
+        return Path.home() / "Library" / "Application Support" / "Logos" / "logos.db"
+    else:
+        return Path.home() / ".local" / "share" / "logos" / "logos.db"
+
+HERMES_HOME = os.environ.get('HERMES_HOME', str(get_default_db_path().parent))
+DB_PATH = get_default_db_path()
+
+# MorphGNT data dir: default to ./morphgnt relative to script location
+# Script is in logos/src-tauri/, so parent is logos/
+_SCRIPT_DIR = Path(__file__).parent.resolve()
+DATA_DIR = Path(os.environ.get('MORPHGNT_DIR', str(_SCRIPT_DIR.parent / 'public' / 'morphgnt')))
 
 
 def get_db():
