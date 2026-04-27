@@ -1,7 +1,29 @@
-__pycache__/
-*.pyc
-*.pyo
+# Build outputs
+dist/
+src-tauri/target/
+src-tauri/gen/
+
+# Dependencies
+node_modules/
+
+# Database (user-specific)
+*.db
 *.db-journal
 *.db-wal
 *.db-shm
 
+# Logs
+*.log
+logs/
+cron_output/
+.cron_check.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
