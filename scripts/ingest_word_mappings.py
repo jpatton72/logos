@@ -161,6 +161,18 @@ def main() -> None:
     print(f"Using database: {db_path}")
     conn = sqlite3.connect(db_path)
 
+    # Check required tables exist
+    tables = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()
+    table_names = {t[0] for t in tables}
+    required = {"word_mappings", "strongs_greek", "strongs_hebrew", "verses", "translations", "terms_fts"}
+    missing = required - table_names
+    if missing:
+        print(f"ERROR: Missing tables: {', '.join(sorted(missing))}")
+        print("  Run ingest.py and ingest_strongs.py first.")
+        return
+
     # Sanity checks
     wm_count = conn.execute("SELECT COUNT(*) FROM word_mappings").fetchone()[0]
     sg_count = conn.execute("SELECT COUNT(*) FROM strongs_greek").fetchone()[0]
