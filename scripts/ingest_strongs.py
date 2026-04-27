@@ -15,10 +15,23 @@ Strong's Greek table schema:
                 definition TEXT, pronunciation TEXT)
 """
 
-import sqlite3, re, urllib.request, json, sys
+import sqlite3, re, urllib.request, json, sys, os, platform, argparse
 from pathlib import Path
 
-DB_PATH = Path.home() / ".local" / "share" / "logos" / "logos.db"
+
+def get_default_db_path() -> Path:
+    system = platform.system()
+    if system == "Windows":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        return base / "Logos Bible" / "logos.db"
+    elif system == "Darwin":
+        return Path.home() / "Library" / "Application Support" / "Logos" / "logos.db"
+    else:
+        return Path.home() / ".local" / "share" / "logos" / "logos.db"
+
+
+def ensure_parent_dir(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
 HEBREW_URL = "https://raw.githubusercontent.com/openscriptures/strongs/master/hebrew/strongs-hebrew-dictionary.js"
 GREEK_URL  = "https://raw.githubusercontent.com/openscriptures/strongs/master/greek/strongs-greek-dictionary.js"
 
@@ -143,7 +156,16 @@ def ingest_hebrew(conn: sqlite3.Connection) -> int:
 
 
 def main() -> None:
-    conn = sqlite3.connect(DB_PATH)
+    parser = argparse.ArgumentParser(description="Ingest Strong's Hebrew and Greek lexicons into logos.db")
+    parser.add_argument("--db-path", type=Path, default=None,
+                        help="Path to logos.db (default: platform-specific app data dir)")
+    args = parser.parse_args()
+
+    db_path = args.db_path or get_default_db_path()
+    ensure_parent_dir(db_path)
+    print(f"Using database: {db_path}")
+
+    conn = sqlite3.connect(db_path)
     ensure_tables(conn)
 
     greek_count = ingest_greek(conn)
