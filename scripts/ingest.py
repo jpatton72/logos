@@ -246,6 +246,41 @@ def ensure_db_tables(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError:
         pass
 
+    # word_mappings: populated by ingest_word_mappings.py from MorphGNT + Strong's
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS word_mappings (
+            id INTEGER PRIMARY KEY,
+            verse_id INTEGER NOT NULL REFERENCES verses(id),
+            word_index INTEGER NOT NULL,
+            strongs_id TEXT NOT NULL,
+            original_word TEXT NOT NULL,
+            lemma TEXT,
+            morphology TEXT,
+            language TEXT NOT NULL CHECK (language IN ('hebrew', 'greek')),
+            UNIQUE(verse_id, word_index)
+        )
+    """)
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_word_mappings_verse ON word_mappings(verse_id)")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_word_mappings_strongs ON word_mappings(strongs_id)")
+    except sqlite3.OperationalError:
+        pass
+
+    # terms_fts: populated by ingest_word_mappings.py from Greek/Hebrew verse text
+    try:
+        conn.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS terms_fts USING fts5(
+                term,
+                verse_count,
+                translation_id
+            )
+        """)
+    except sqlite3.OperationalError:
+        pass
+
     conn.commit()
     print("Database tables verified.")
 
