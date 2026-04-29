@@ -66,7 +66,10 @@ export const useAppStore = create<AppState>()(
       notes: [],
       fontSize: 18,
 
-      setBook: (book: string | Book) => set({ currentBook: typeof book === 'string' ? book : book.abbreviation, currentVerse: null }),
+      setBook: (book: string | Book) => set({
+        currentBook: (typeof book === 'string' ? book : book.abbreviation).toLowerCase(),
+        currentVerse: null,
+      }),
       setChapter: (chapter) => set({ currentChapter: chapter, currentVerse: null }),
       setVerse: (verse) => set({ currentVerse: verse }),
       addTranslation: (trans) =>

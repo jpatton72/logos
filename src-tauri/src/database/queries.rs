@@ -18,6 +18,7 @@ pub struct Book {
     pub order_index: i32,
 }
 
+#[allow(dead_code)] // Schema mirror; kept for potential future commands.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Translation {
     pub id: i64,
@@ -39,7 +40,7 @@ pub struct Verse {
     pub text: String,
     #[serde(default)]
     pub translation_abbreviation: Option<String>,
-    #[serde(skip)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub word_mappings: Option<Vec<WordMapping>>,
 }
 
@@ -75,16 +76,24 @@ pub struct Bookmark {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BookmarkVerseSummary {
+    pub id: i64,
+    pub book_id: i64,
+    pub book_abbreviation: String,
+    pub chapter: i32,
+    pub verse_num: i32,
+    pub translation_id: i64,
+    pub translation_abbreviation: String,
+    pub text: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BookmarkWithVerse {
     pub id: i64,
     pub verse_id: i64,
     pub label: Option<String>,
     pub created_at: String,
-    pub book_abbreviation: String,
-    pub chapter: i32,
-    pub verse_num: i32,
-    pub text: String,
-    pub translation_abbreviation: String,
+    pub verse: BookmarkVerseSummary,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -93,9 +102,14 @@ pub struct Note {
     pub verse_id: Option<i64>,
     pub title: Option<String>,
     pub content: String,
-    pub tags: Option<String>,
+    pub tags: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+fn parse_tags(raw: Option<String>) -> Vec<String> {
+    raw.and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+        .unwrap_or_default()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -152,8 +166,9 @@ pub struct TermResult {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SearchResult {
-    pub id: i64,
+    pub verse_id: i64,
     pub book_abbreviation: String,
+    pub book_name: String,
     pub chapter: i32,
     pub verse_num: i32,
     pub text: String,
@@ -201,11 +216,12 @@ pub fn get_all_books(db: &Database) -> SqliteResult<Vec<Book>> {
     Ok(books)
 }
 
+#[allow(dead_code)] // Helper kept for future commands; not currently invoked from Tauri.
 pub fn get_book_by_abbreviation(db: &Database, abbreviation: &str) -> SqliteResult<Option<Book>> {
     let conn = db.conn.lock().unwrap();
     let mut stmt = conn.prepare(
-        "SELECT id, abbreviation, full_name, testament, genre, order_index 
-         FROM books WHERE abbreviation = ?"
+        "SELECT id, abbreviation, full_name, testament, genre, order_index
+         FROM books WHERE abbreviation = ? COLLATE NOCASE"
     )?;
 
     let mut rows = stmt.query(params![abbreviation])?;
@@ -227,6 +243,7 @@ pub fn get_book_by_abbreviation(db: &Database, abbreviation: &str) -> SqliteResu
 // Translation Queries
 // ============================================================================
 
+#[allow(dead_code)] // Helper kept for future commands; not currently invoked from Tauri.
 pub fn get_all_translations(db: &Database) -> SqliteResult<Vec<Translation>> {
     let conn = db.conn.lock().unwrap();
     let mut stmt = conn.prepare(
@@ -247,11 +264,12 @@ pub fn get_all_translations(db: &Database) -> SqliteResult<Vec<Translation>> {
     Ok(translations)
 }
 
+#[allow(dead_code)] // Helper kept for future commands; not currently invoked from Tauri.
 pub fn get_translation_by_abbreviation(db: &Database, abbreviation: &str) -> SqliteResult<Option<Translation>> {
     let conn = db.conn.lock().unwrap();
     let mut stmt = conn.prepare(
-        "SELECT id, name, abbreviation, language, source_url, notes 
-         FROM translations WHERE abbreviation = ?"
+        "SELECT id, name, abbreviation, language, source_url, notes
+         FROM translations WHERE abbreviation = ? COLLATE NOCASE"
     )?;
 
     let mut rows = stmt.query(params![abbreviation])?;
@@ -280,7 +298,9 @@ pub fn get_verse(db: &Database, book_abbreviation: &str, chapter: i32, verse_num
          FROM verses v
          JOIN books b ON v.book_id = b.id
          JOIN translations t ON v.translation_id = t.id
-         WHERE b.abbreviation = ? AND v.chapter = ? AND v.verse_num = ? AND t.abbreviation = ?"
+         WHERE b.abbreviation = ? COLLATE NOCASE
+           AND v.chapter = ? AND v.verse_num = ?
+           AND t.abbreviation = ? COLLATE NOCASE"
     )?;
 
     let mut rows = stmt.query(params![book_abbreviation, chapter, verse_num, translation_abbreviation])?;
@@ -313,7 +333,9 @@ pub fn get_chapter(db: &Database, book_abbreviation: &str, chapter: i32, transla
          FROM verses v
          JOIN books b ON v.book_id = b.id
          JOIN translations t ON v.translation_id = t.id
-         WHERE b.abbreviation = ? AND v.chapter = ? AND t.abbreviation IN ({})
+         WHERE b.abbreviation = ? COLLATE NOCASE
+           AND v.chapter = ?
+           AND t.abbreviation COLLATE NOCASE IN ({})
          ORDER BY v.verse_num, t.id",
         placeholders.join(", ")
     );
@@ -326,6 +348,7 @@ pub fn get_chapter(db: &Database, book_abbreviation: &str, chapter: i32, transla
     }
     
     let rows = stmt.query_map(rusqlite::params_from_iter(params_vec), |row| {
+        let trans_abbr: String = row.get(7)?;
         Ok((
             row.get::<_, i32>(3)?,  // chapter
             row.get::<_, i32>(4)?,  // verse_num
@@ -337,9 +360,9 @@ pub fn get_chapter(db: &Database, book_abbreviation: &str, chapter: i32, transla
                 verse_num: row.get(4)?,
                 translation_id: row.get(5)?,
                 text: row.get(6)?,
-            ..Verse::default()
+                translation_abbreviation: Some(trans_abbr),
+                ..Verse::default()
             },
-            row.get::<_, String>(7)?,  // trans_abbr
         ))
     })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -347,9 +370,8 @@ pub fn get_chapter(db: &Database, book_abbreviation: &str, chapter: i32, transla
     let mut verse_groups: Vec<VerseGroup> = Vec::new();
     let mut current_verse_num: Option<i32> = None;
     let mut current_group: Vec<Verse> = Vec::new();
-    let mut current_translations: Vec<String> = Vec::new();
 
-    for (ch, vn, verse, trans_abbr) in rows {
+    for (ch, vn, verse) in rows {
         if current_verse_num != Some(vn) {
             if !current_group.is_empty() {
                 verse_groups.push(VerseGroup {
@@ -360,10 +382,8 @@ pub fn get_chapter(db: &Database, book_abbreviation: &str, chapter: i32, transla
             }
             current_verse_num = Some(vn);
             current_group = vec![verse];
-            current_translations = vec![trans_abbr];
         } else {
             current_group.push(verse);
-            current_translations.push(trans_abbr);
         }
     }
 
@@ -415,54 +435,60 @@ pub fn search_verses(
     testament: Option<&str>,
     genre: Option<&str>,
     sort: Option<&str>,
-    limit: u32,
+    limit: Option<u32>,
 ) -> SqliteResult<Vec<SearchResult>> {
     let conn = db.conn.lock().unwrap();
 
-    // Build dynamic ORDER BY
     let order_by = match sort {
         Some("book_order") => "b.order_index ASC, v.chapter ASC, v.verse_num ASC",
         _ => "verses_fts.rank ASC",
     };
 
+    let limit_clause = if limit.is_some() { "LIMIT ?" } else { "" };
     let sql = format!(
-        "SELECT v.id, b.abbreviation, v.chapter, v.verse_num, v.text, t.abbreviation, verses_fts.rank
+        "SELECT v.id, b.abbreviation, b.full_name, v.chapter, v.verse_num, v.text, t.abbreviation, verses_fts.rank
          FROM verses_fts
          JOIN verses v ON verses_fts.verse_id = v.id
          JOIN books b ON v.book_id = b.id
          JOIN translations t ON v.translation_id = t.id
          WHERE verses_fts MATCH ?
-           AND (? IS NULL OR t.abbreviation = ?)
-           AND (? IS NULL OR b.testament = ?)
-           AND (? IS NULL OR b.genre = ?)
-         ORDER BY {}
-         LIMIT ?",
-        order_by
+           AND (? IS NULL OR t.abbreviation = ? COLLATE NOCASE)
+           AND (? IS NULL OR b.testament = ? COLLATE NOCASE)
+           AND (? IS NULL OR b.genre = ? COLLATE NOCASE)
+         ORDER BY {} {}",
+        order_by, limit_clause,
     );
 
     let mut stmt = conn.prepare(&sql)?;
 
-    let results = stmt.query_map(
-        params![
-            query,
-            translation, translation,
-            testament, testament,
-            genre, genre,
-            limit
-        ],
-        |row| {
+    let mut bound: Vec<Box<dyn rusqlite::ToSql>> = vec![
+        Box::new(query.to_string()),
+        Box::new(translation.map(String::from)),
+        Box::new(translation.map(String::from)),
+        Box::new(testament.map(String::from)),
+        Box::new(testament.map(String::from)),
+        Box::new(genre.map(String::from)),
+        Box::new(genre.map(String::from)),
+    ];
+    if let Some(n) = limit {
+        bound.push(Box::new(n));
+    }
+
+    let bound_refs: Vec<&dyn rusqlite::ToSql> = bound.iter().map(|b| b.as_ref()).collect();
+    let results = stmt
+        .query_map(rusqlite::params_from_iter(bound_refs), |row| {
             Ok(SearchResult {
-                id: row.get(0)?,
+                verse_id: row.get(0)?,
                 book_abbreviation: row.get(1)?,
-                chapter: row.get(2)?,
-                verse_num: row.get(3)?,
-                text: row.get(4)?,
-                translation_abbreviation: row.get(5)?,
-                rank: row.get(6)?,
+                book_name: row.get(2)?,
+                chapter: row.get(3)?,
+                verse_num: row.get(4)?,
+                text: row.get(5)?,
+                translation_abbreviation: row.get(6)?,
+                rank: row.get(7)?,
             })
-        },
-    )?
-    .collect::<Result<Vec<_>, _>>()?;
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(results)
 }
@@ -511,8 +537,9 @@ pub fn create_bookmark(db: &Database, verse_id: i64, label: Option<&str>) -> Sql
 pub fn get_all_bookmarks(db: &Database) -> SqliteResult<Vec<BookmarkWithVerse>> {
     let conn = db.conn.lock().unwrap();
     let mut stmt = conn.prepare(
-        "SELECT b.id, b.verse_id, b.label, b.created_at, 
-                bn.abbreviation, v.chapter, v.verse_num, v.text, t.abbreviation
+        "SELECT b.id, b.verse_id, b.label, b.created_at,
+                v.id, v.book_id, bn.abbreviation, v.chapter, v.verse_num,
+                v.translation_id, t.abbreviation, v.text
          FROM bookmarks b
          JOIN verses v ON b.verse_id = v.id
          JOIN books bn ON v.book_id = bn.id
@@ -526,11 +553,16 @@ pub fn get_all_bookmarks(db: &Database) -> SqliteResult<Vec<BookmarkWithVerse>> 
             verse_id: row.get(1)?,
             label: row.get(2)?,
             created_at: row.get(3)?,
-            book_abbreviation: row.get(4)?,
-            chapter: row.get(5)?,
-            verse_num: row.get(6)?,
-            text: row.get(7)?,
-            translation_abbreviation: row.get(8)?,
+            verse: BookmarkVerseSummary {
+                id: row.get(4)?,
+                book_id: row.get(5)?,
+                book_abbreviation: row.get(6)?,
+                chapter: row.get(7)?,
+                verse_num: row.get(8)?,
+                translation_id: row.get(9)?,
+                translation_abbreviation: row.get(10)?,
+                text: row.get(11)?,
+            },
         })
     })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -564,7 +596,7 @@ pub fn create_note(db: &Database, verse_id: Option<i64>, title: Option<&str>, co
             verse_id: row.get(1)?,
             title: row.get(2)?,
             content: row.get(3)?,
-            tags: row.get(4)?,
+            tags: parse_tags(row.get(4)?),
             created_at: row.get(5)?,
             updated_at: row.get(6)?,
         })
@@ -599,7 +631,7 @@ pub fn get_notes(db: &Database, verse_id: Option<i64>) -> SqliteResult<Vec<Note>
             verse_id: row.get(1)?,
             title: row.get(2)?,
             content: row.get(3)?,
-            tags: row.get(4)?,
+            tags: parse_tags(row.get(4)?),
             created_at: row.get(5)?,
             updated_at: row.get(6)?,
         })
@@ -624,7 +656,7 @@ pub fn update_note(db: &Database, id: i64, title: Option<&str>, content: &str, t
             verse_id: row.get(1)?,
             title: row.get(2)?,
             content: row.get(3)?,
-            tags: row.get(4)?,
+            tags: parse_tags(row.get(4)?),
             created_at: row.get(5)?,
             updated_at: row.get(6)?,
         })
@@ -655,7 +687,7 @@ pub fn search_notes(db: &Database, query: &str) -> SqliteResult<Vec<Note>> {
             verse_id: row.get(1)?,
             title: row.get(2)?,
             content: row.get(3)?,
-            tags: row.get(4)?,
+            tags: parse_tags(row.get(4)?),
             created_at: row.get(5)?,
             updated_at: row.get(6)?,
         })
@@ -694,7 +726,7 @@ pub fn get_ketiv_qere(db: &Database, book_abbreviation: &str, chapter: i32, vers
         "SELECT k.ketiv, k.qere
          FROM ketiv_qere k
          JOIN books b ON k.book_id = b.id
-         WHERE b.abbreviation = ? AND k.chapter = ? AND k.verse_num = ?",
+         WHERE b.abbreviation = ? COLLATE NOCASE AND k.chapter = ? AND k.verse_num = ?",
     )?;
     let entries = stmt
         .query_map(params![book_abbreviation, chapter, verse_num], |row| {
@@ -828,7 +860,9 @@ pub fn compare_verses(db: &Database, book_abbreviation: &str, chapter: i32, vers
          FROM verses v
          JOIN books b ON v.book_id = b.id
          JOIN translations t ON v.translation_id = t.id
-         WHERE b.abbreviation = ? AND v.chapter = ? AND v.verse_num = ? AND t.abbreviation IN ({})
+         WHERE b.abbreviation = ? COLLATE NOCASE
+           AND v.chapter = ? AND v.verse_num = ?
+           AND t.abbreviation COLLATE NOCASE IN ({})
          ORDER BY t.id",
         placeholders.join(", ")
     );
@@ -898,8 +932,9 @@ pub fn get_chapter_originals(
          JOIN books b ON v.book_id = b.id
          JOIN translations t ON v.translation_id = t.id
          LEFT JOIN word_mappings wm ON wm.verse_id = v.id
-         WHERE b.abbreviation = ? AND v.chapter = ?
-           AND t.abbreviation IN ('oshb', 'sblgnt')
+         WHERE b.abbreviation = ? COLLATE NOCASE
+           AND v.chapter = ?
+           AND t.abbreviation COLLATE NOCASE IN ('oshb', 'sblgnt', 'wlc')
          ORDER BY v.verse_num, t.id, wm.word_index",
     )?;
 

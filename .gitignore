@@ -6,11 +6,20 @@ src-tauri/gen/
 # Dependencies
 node_modules/
 
-# Database (user-specific)
+# Database (user-specific or bundled at build time — do not commit)
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Downloaded ingest sources (auto-fetched by the scripts on demand)
+data/*.json
+data/oshb/
+
+# Built installers (distribute via GitHub Releases instead)
+*.msi
+*-setup.exe
+*-setup.exe.sig
 
 # Logs
 *.log
@@ -27,3 +36,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 *.swp
+
+# IDE / agent state
+.claude/

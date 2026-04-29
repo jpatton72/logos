@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useAppStore } from '../store/useAppStore';
-import { createBookmark, getKetivQere } from '../api';
+import { createBookmark, deleteBookmark, getKetivQere } from '../api';
 import type { VerseGroup, WordMapping, KetivQere } from '../lib/tauri';
 
 // ============================================================================
@@ -152,21 +153,43 @@ interface WordTooltipProps {
   word: WordMapping;
   ketivQeres: KetivQere[];
   position: { top: number; left: number };
+  onClose: () => void;
 }
 
-function WordTooltip({ word, ketivQeres, position }: WordTooltipProps) {
+function WordTooltip({ word, ketivQeres, position, onClose }: WordTooltipProps) {
   const { darkMode } = useAppStore();
   const isHebrew = word.language === 'hebrew';
   const morphParts = isHebrew ? parseHebrewMorphology(word.morphology ?? '') : parseGreekMorphology(word.morphology ?? '');
+  const ref = useRef<HTMLDivElement | null>(null);
 
-  return (
+  // Close on outside-click and on Escape.
+  useEffect(() => {
+    const handleMouseDown = (e: MouseEvent) => {
+      if (!ref.current) return;
+      if (!ref.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [onClose]);
+
+  return createPortal(
     <div
+      ref={ref}
       onClick={(e) => e.stopPropagation()}
       style={{
         position: 'fixed',
         top: Math.max(8, position.top - 10),
         left: Math.min(position.left, window.innerWidth - 300),
-        zIndex: 100,
+        zIndex: 9999,
         backgroundColor: darkMode ? '#252519' : '#ffffff',
         border: `1px solid ${darkMode ? '#92400e' : '#d97706'}`,
         borderRadius: '10px',
@@ -273,9 +296,10 @@ function WordTooltip({ word, ketivQeres, position }: WordTooltipProps) {
 
       {/* Close hint */}
       <div style={{ fontSize: '0.62rem', color: darkMode ? '#57534e' : '#a8a29e', marginTop: '0.5rem', textAlign: 'center' }}>
-        Click elsewhere to close
+        Click elsewhere or press Esc to close
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -374,6 +398,7 @@ function OriginalRow({ words, isHebrew, ketivQeres }: OriginalRowProps) {
           word={tooltip.word}
           ketivQeres={ketivQeres}
           position={tooltip.pos}
+          onClose={() => setTooltip(null)}
         />
       )}
     </div>
@@ -390,7 +415,7 @@ interface VerseDisplayProps {
 }
 
 export function VerseDisplay({ group, originalVerses }: VerseDisplayProps) {
-  const { darkMode, fontSize, currentVerse, setVerse, addBookmark, bookmarks } = useAppStore();
+  const { darkMode, fontSize, currentVerse, setVerse, addBookmark, removeBookmark, bookmarks } = useAppStore();
   const [bmHover, setBmHover] = useState(false);
   const [ketivQere, setKetivQere] = useState<Record<number, KetivQere[]>>({});
   const isActive = currentVerse === group.verse_num;
@@ -415,21 +440,34 @@ export function VerseDisplay({ group, originalVerses }: VerseDisplayProps) {
 
   const handleBookmark = async () => {
     if (!primaryVerse) return;
+    if (isBookmarked) {
+      // Toggle off: find every Zustand entry for this verse and delete from DB + store.
+      const matching = bookmarks.filter((b) => b.verse_id === primaryVerse.id);
+      for (const bm of matching) {
+        try {
+          await deleteBookmark(bm.id);
+        } catch (e) {
+          console.error('Failed to delete bookmark:', e);
+        }
+        removeBookmark(bm.id);
+      }
+      return;
+    }
     try {
-      await createBookmark(primaryVerse.id);
+      const created = await createBookmark(primaryVerse.id);
       addBookmark({
-        id: Date.now(), // optimistic
+        id: created.id,
         verse_id: primaryVerse.id,
-        label: null,
+        label: created.label,
         book_abbreviation: primaryVerse.book_abbreviation,
         chapter: group.chapter,
         verse_num: group.verse_num,
         text: primaryVerse.text,
         translation_abbreviation: primaryVerse.translation_abbreviation || '',
-        created_at: new Date().toISOString(),
+        created_at: created.created_at,
       });
-    } catch {
-      // silent fail — bookmark button just won't update
+    } catch (e) {
+      console.error('Failed to create bookmark:', e);
     }
   };
   // Separate OSHB and SBLGNT words
@@ -444,6 +482,8 @@ export function VerseDisplay({ group, originalVerses }: VerseDisplayProps) {
     <div
       id={`verse-${group.verses[0]?.book_abbreviation}-${group.chapter}-${group.verse_num}`}
       onClick={() => setVerse(group.verse_num)}
+      onMouseEnter={() => setBmHover(true)}
+      onMouseLeave={() => setBmHover(false)}
       style={{
         display: 'block',
         gap: '0.5rem',
@@ -491,12 +531,12 @@ export function VerseDisplay({ group, originalVerses }: VerseDisplayProps) {
                 e.stopPropagation();
                 handleBookmark();
               }}
-              title={isBookmarked ? 'Bookmarked' : 'Add bookmark'}
+              title={isBookmarked ? 'Click to remove bookmark' : 'Click to bookmark this verse'}
               style={{
-                opacity: bmHover || isBookmarked ? 1 : 0,
+                opacity: bmHover || isBookmarked || isActive ? 1 : 0,
                 background: 'none',
                 border: 'none',
-                cursor: isBookmarked ? 'default' : 'pointer',
+                cursor: 'pointer',
                 padding: '2px',
                 borderRadius: '4px',
                 color: isBookmarked ? '#d97706' : darkMode ? '#78716c' : '#92400e',

@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+"""Rebuild the Logos bundled database from scratch.
+
+Runs every ingester in the correct order and copies the result to
+src-tauri/logos.db so the next `npm run tauri build` ships a fully populated
+database. End users never need to run this — they just install the app — but
+developers preparing a release should run this whenever upstream data sources
+change.
+
+Usage:
+    python scripts/rebuild_database.py
+    python scripts/rebuild_database.py --db-path /path/to/logos.db
+
+Steps performed:
+    1. Ingest KJV / SBLGNT / WLC base text (existing scripts/ingest.py).
+    2. Ingest Strong's Greek + Hebrew dictionaries (ingest_strongs.py).
+    3. Ingest NKJV + ESV from Bible-json (auto-download).
+    4. Ingest KJV apocrypha from Bible-json (auto-download).
+    5. Ingest MorphGNT Greek word_mappings (auto-download from morphgnt/sblgnt).
+    6. Ingest OSHB Hebrew word_mappings (auto-download from openscriptures/morphhb).
+    7. Resolve lemma -> Strong's IDs and populate terms_fts (ingest_word_mappings.py).
+    8. Copy the populated DB to src-tauri/logos.db.
+
+Step 1 + 2 are skipped if the DB already has populated `verses` and Strong's
+tables (so reruns don't duplicate work).
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import platform
+import shutil
+import sqlite3
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+DATA_DIR = ROOT / "data"
+SCRIPTS = ROOT / "scripts"
+BUNDLED_DB = ROOT / "src-tauri" / "logos.db"
+
+NKJV_URL = "https://raw.githubusercontent.com/Amosamevor/Bible-json/main/versions/en/NEW%20KING%20JAMES%20VERSION.json"
+ESV_URL = "https://raw.githubusercontent.com/Amosamevor/Bible-json/main/versions/en/ENGLISH%20STANDARD%20VERSION.json"
+KJV_APOCRYPHA_URL = "https://raw.githubusercontent.com/Amosamevor/Bible-json/main/apocrypha-versions/KJV.json"
+
+
+def default_db_path() -> Path:
+    system = platform.system()
+    if system == "Windows":
+        appdata = os.environ.get("APPDATA")
+        if not appdata:
+            raise SystemExit("APPDATA is not set; pass --db-path explicitly.")
+        return Path(appdata) / "logos" / "Logos" / "data" / "logos.db"
+    if system == "Darwin":
+        return Path.home() / "Library" / "Application Support" / "logos" / "Logos" / "data" / "logos.db"
+    return Path.home() / ".local" / "share" / "logos" / "Logos" / "data" / "logos.db"
+
+
+def run(*cmd: str) -> None:
+    print(f"\n>>> {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=ROOT)
+    if result.returncode != 0:
+        raise SystemExit(f"Command failed with exit code {result.returncode}: {' '.join(cmd)}")
+
+
+def has_base_text(db_path: Path) -> bool:
+    conn = sqlite3.connect(db_path)
+    try:
+        n_verses = conn.execute("SELECT COUNT(*) FROM verses").fetchone()[0]
+        n_books = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
+        n_strongs = conn.execute(
+            "SELECT (SELECT COUNT(*) FROM strongs_greek) + (SELECT COUNT(*) FROM strongs_hebrew)"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    return n_verses > 50_000 and n_books >= 66 and n_strongs > 10_000
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--db-path", help="Path to logos.db (default: app data dir).")
+    parser.add_argument("--skip-base", action="store_true", help="Skip ingest.py + ingest_strongs.py.")
+    parser.add_argument("--skip-copy", action="store_true", help="Don't copy the result to src-tauri/logos.db.")
+    args = parser.parse_args()
+
+    db_path = Path(args.db_path) if args.db_path else default_db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    print(f"Target DB: {db_path}")
+    py = sys.executable
+
+    # Step 1+2: base text + Strong's. Skip if DB looks already populated.
+    if args.skip_base:
+        print("\nSkipping base text + Strong's (--skip-base).")
+    elif db_path.exists() and has_base_text(db_path):
+        print("\nBase text + Strong's already present; skipping ingest.py / ingest_strongs.py.")
+    else:
+        run(py, str(SCRIPTS / "ingest.py"), "--db-path", str(db_path))
+        run(py, str(SCRIPTS / "ingest_strongs.py"), "--db-path", str(db_path))
+
+    # Step 3: NKJV + ESV
+    run(
+        py, str(SCRIPTS / "ingest_json_translation.py"),
+        "--json", str(DATA_DIR / "NKJV.json"),
+        "--name", "New King James Version",
+        "--abbr", "NKJV",
+        "--db-path", str(db_path),
+        "--download-url", NKJV_URL,
+    )
+    run(
+        py, str(SCRIPTS / "ingest_json_translation.py"),
+        "--json", str(DATA_DIR / "ESV.json"),
+        "--name", "English Standard Version",
+        "--abbr", "ESV",
+        "--db-path", str(db_path),
+        "--download-url", ESV_URL,
+        "--optimize",
+    )
+
+    # Step 4: KJV apocrypha
+    run(
+        py, str(SCRIPTS / "ingest_apocrypha.py"),
+        "--json", str(DATA_DIR / "KJV_Apocrypha.json"),
+        "--translation", "KJV",
+        "--db-path", str(db_path),
+        "--download-url", KJV_APOCRYPHA_URL,
+    )
+
+    # Step 5: MorphGNT Greek word_mappings
+    run(py, str(SCRIPTS / "ingest_morphgnt.py"), "--db-path", str(db_path), "--wipe")
+
+    # Step 6: OSHB Hebrew word_mappings
+    run(py, str(SCRIPTS / "ingest_oshb.py"), "--db-path", str(db_path), "--wipe")
+
+    # Step 7: lemma -> Strong's match + terms_fts
+    run(py, str(SCRIPTS / "ingest_word_mappings.py"), "--db-path", str(db_path))
+
+    # Step 8: copy to src-tauri/ so the next `tauri build` ships it.
+    if not args.skip_copy:
+        shutil.copy2(db_path, BUNDLED_DB)
+        size_mb = BUNDLED_DB.stat().st_size / (1024 * 1024)
+        print(f"\nCopied populated DB to {BUNDLED_DB} ({size_mb:.1f} MB).")
+
+    print("\nDatabase rebuild complete.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

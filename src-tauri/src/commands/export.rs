@@ -30,63 +30,42 @@ pub struct ExportData {
     pub exported_at: String,
 }
 
-fn parse_tags(tags_str: &Option<String>) -> Vec<String> {
-    match tags_str {
-        Some(s) if !s.is_empty() => serde_json::from_str(s).unwrap_or_else(|_| vec![]),
-        _ => vec![],
-    }
-}
-
 #[tauri::command]
 pub fn export_notes_and_bookmarks(db: State<'_, Database>) -> Result<ExportData, String> {
     // Get all notes with verse references
-    let notes_result: Result<Vec<queries::Note>, String> = queries::get_notes(&db, None)
-        .map_err(|e| e.to_string());
-    
-    let notes = match notes_result {
-        Ok(raw_notes) => {
-            raw_notes.into_iter().map(|n| {
-                let verse_ref = if let Some(vid) = n.verse_id {
-                    queries::get_verse_by_id(&db, vid)
-                        .ok()
-                        .flatten()
-                        .map(|v| format!("{} {}:{}", v.book_abbreviation, v.chapter, v.verse_num))
-                } else {
-                    None
-                };
-                
-                ExportedNote {
-                    id: n.id,
-                    title: n.title,
-                    content: n.content,
-                    tags: parse_tags(&n.tags),
-                    verse_ref,
-                    created_at: n.created_at,
-                    updated_at: n.updated_at,
-                }
-            }).collect()
+    let raw_notes = queries::get_notes(&db, None).map_err(|e| e.to_string())?;
+    let notes: Vec<ExportedNote> = raw_notes.into_iter().map(|n| {
+        let verse_ref = if let Some(vid) = n.verse_id {
+            queries::get_verse_by_id(&db, vid)
+                .ok()
+                .flatten()
+                .map(|v| format!("{} {}:{}", v.book_abbreviation, v.chapter, v.verse_num))
+        } else {
+            None
+        };
+
+        ExportedNote {
+            id: n.id,
+            title: n.title,
+            content: n.content,
+            tags: n.tags,
+            verse_ref,
+            created_at: n.created_at,
+            updated_at: n.updated_at,
         }
-        Err(e) => return Err(e),
-    };
-    
+    }).collect();
+
     // Get all bookmarks
-    let bookmarks_result: Result<Vec<queries::BookmarkWithVerse>, String> = queries::get_all_bookmarks(&db)
-        .map_err(|e| e.to_string());
-    
-    let bookmarks = match bookmarks_result {
-        Ok(raw_bookmarks) => {
-            raw_bookmarks.into_iter().map(|b| {
-                ExportedBookmark {
-                    id: b.id,
-                    label: b.label,
-                    verse_ref: format!("{} {}:{}", b.book_abbreviation, b.chapter, b.verse_num),
-                    verse_text: b.text,
-                    created_at: b.created_at,
-                }
-            }).collect()
+    let raw_bookmarks = queries::get_all_bookmarks(&db).map_err(|e| e.to_string())?;
+    let bookmarks: Vec<ExportedBookmark> = raw_bookmarks.into_iter().map(|b| {
+        ExportedBookmark {
+            id: b.id,
+            label: b.label,
+            verse_ref: format!("{} {}:{}", b.verse.book_abbreviation, b.verse.chapter, b.verse.verse_num),
+            verse_text: b.verse.text,
+            created_at: b.created_at,
         }
-        Err(e) => return Err(e),
-    };
+    }).collect();
     
     Ok(ExportData {
         notes,

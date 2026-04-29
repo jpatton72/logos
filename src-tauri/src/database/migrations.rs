@@ -4,13 +4,14 @@ use tracing::info;
 pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
     info!("Running database migrations");
 
-    // Create books table
+    // Create books table.
+    // testament: 'ot' (Old Testament), 'nt' (New Testament), 'apoc' (Apocrypha / non-canonical).
     conn.execute(
         "CREATE TABLE IF NOT EXISTS books (
             id INTEGER PRIMARY KEY,
             abbreviation TEXT UNIQUE NOT NULL,
             full_name TEXT NOT NULL,
-            testament TEXT NOT NULL CHECK (testament IN ('ot', 'nt')),
+            testament TEXT NOT NULL CHECK (testament IN ('ot', 'nt', 'apoc')),
             genre TEXT NOT NULL,
             order_index INTEGER NOT NULL
         )",

@@ -53,12 +53,23 @@ export interface Bookmark {
   created_at: string;
 }
 
+export interface BookmarkVerseSummary {
+  id: number;
+  book_id: number;
+  book_abbreviation: string;
+  chapter: number;
+  verse_num: number;
+  translation_id: number;
+  translation_abbreviation: string;
+  text: string;
+}
+
 export interface BookmarkWithVerse {
   id: number;
   verse_id: number;
   label: string | null;
   created_at: string;
-  verse: Verse;
+  verse: BookmarkVerseSummary;
 }
 
 export interface Note {
@@ -66,7 +77,7 @@ export interface Note {
   verse_id: number | null;
   title: string | null;
   content: string;
-  tags: string[] | null;
+  tags: string[];
   created_at: string;
   updated_at: string;
 }
@@ -180,11 +191,12 @@ export async function compareVerses(
 export async function searchVerses(
   query: string,
   translation?: string,
-  limit: number = 50,
+  limit?: number,
   testament?: string,
   genre?: string,
   sort?: string
 ): Promise<SearchResult[]> {
+  // limit === undefined or 0 means "no limit" on the Rust side.
   return invoke<SearchResult[]>("search_verses", {
     query,
     filters: {
@@ -195,7 +207,7 @@ export async function searchVerses(
     options: {
       sort: sort ?? null,
     },
-    limit,
+    limit: limit && limit > 0 ? limit : null,
   });
 }
 

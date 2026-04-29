@@ -11,7 +11,6 @@ export function SearchBar({ initialQuery = '', embedded = false }: SearchBarProp
   const navigate = useNavigate();
   const { darkMode } = useAppStore();
   const [query, setQuery] = useState(initialQuery);
-  const [mode, setMode] = useState<'verses' | 'terms'>('verses');
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -24,7 +23,7 @@ export function SearchBar({ initialQuery = '', embedded = false }: SearchBarProp
   const handleSearch = (q: string) => {
     setQuery(q);
     if (embedded && q.trim()) {
-      navigate(`/search?q=${encodeURIComponent(q)}&mode=${mode}`);
+      navigate(`/search?q=${encodeURIComponent(q)}`);
     }
   };
 
@@ -98,33 +97,8 @@ export function SearchBar({ initialQuery = '', embedded = false }: SearchBarProp
         )}
       </div>
 
-      {/* Mode tabs */}
-      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-        {(['verses', 'terms'] as const).map((m) => (
-          <button
-            key={m}
-            onClick={() => setMode(m)}
-            style={{
-              padding: '0.25rem 0.75rem',
-              borderRadius: '9999px',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              border: 'none',
-              cursor: 'pointer',
-              textTransform: 'capitalize',
-              backgroundColor:
-                mode === m
-                  ? darkMode ? '#78350f' : '#fef3c7'
-                  : 'transparent',
-              color:
-                mode === m
-                  ? darkMode ? '#f5f5f4' : '#92400e'
-                  : darkMode ? '#a8a29e' : '#78716c',
-            }}
-          >
-            {m}
-          </button>
-        ))}
+      <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', color: darkMode ? '#78716c' : '#a8a29e' }}>
+        Search by reference (e.g. <em>John 3:16</em>, <em>Gen 1</em>, <em>1 Cor 13:4-7</em>) or by any text.
       </div>
     </div>
   );

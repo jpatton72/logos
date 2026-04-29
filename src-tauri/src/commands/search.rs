@@ -19,7 +19,7 @@ pub fn search_verses(
     query: String,
     filters: Option<VerseFilters>,
     options: Option<SearchOptions>,
-    limit: u32,
+    limit: Option<u32>,
 ) -> Result<Vec<SearchResult>, String> {
     let filters = filters.unwrap_or(VerseFilters {
         translation: None,
@@ -36,7 +36,8 @@ pub fn search_verses(
         filters.testament.as_deref(),
         filters.genre.as_deref(),
         options.sort.as_deref(),
-        limit,
+        // None or Some(0) means "no limit".
+        limit.filter(|n| *n > 0),
     )
     .map_err(|e| e.to_string())
 }

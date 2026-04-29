@@ -17,6 +17,7 @@ pub struct ChatMessage {
 // Provider trait (async)
 // ============================================================================
 
+#[allow(async_fn_in_trait)]
 pub trait Provider: Send + Sync {
     /// Return the base URL for the provider's chat completions endpoint.
     fn endpoint(&self) -> &str;
@@ -212,14 +213,8 @@ impl Provider for AnthropicProvider {
             serde_json::from_str(body).map_err(|e| AiError::ParseError(e.to_string()))?;
         resp.content
             .into_iter()
-            .find_map(|block| {
-                if let ContentBlock::Text { text } = block {
-                    Some(text)
-                } else {
-                    None
-                }
-            })
-            .filter(|s| !s.is_empty())
+            .map(|ContentBlock::Text { text }| text)
+            .find(|s| !s.is_empty())
             .ok_or(AiError::EmptyResponse)
     }
 }

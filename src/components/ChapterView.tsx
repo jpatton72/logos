@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { getChapter, getChapterOriginals } from '../lib/tauri';
-import type { VerseGroup, Verse } from '../lib/tauri';
+import { getChapter, getChapterOriginals, getBookIndex } from '../lib/tauri';
+import type { VerseGroup, Verse, Book } from '../lib/tauri';
 import { TranslationSelector } from './TranslationSelector';
 import { VerseDisplay } from './VerseDisplay';
 
@@ -38,6 +38,11 @@ export function ChapterView({
   const [verses, setVerses] = useState<VerseGroup[]>([]);
   const [originalVerses, setOriginalVerses] = useState<VerseWithWords[]>([]);
   const [loading, setLoading] = useState(false);
+  const [books, setBooks] = useState<Book[]>([]);
+
+  useEffect(() => {
+    getBookIndex().then(setBooks).catch(() => setBooks([]));
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -52,7 +57,8 @@ export function ChapterView({
     })();
   }, [book, chapter, activeTranslations.join(',')]);
 
-  const bookName = book.charAt(0).toUpperCase() + book.slice(1);
+  const matchedBook = books.find((b) => b.abbreviation.toLowerCase() === book.toLowerCase());
+  const bookName = matchedBook?.full_name ?? (book.charAt(0).toUpperCase() + book.slice(1));
 
   return (
     <div style={{ maxWidth: '72rem', margin: '0 auto', padding: '1.5rem' }}>

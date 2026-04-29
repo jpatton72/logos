@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { getStrongsGreek, getStrongsHebrew, getChapterOriginals } from '../lib/tauri';
-import type { WordMapping, StrongsGreek, StrongsHebrew } from '../lib/tauri';
+import { getStrongsGreek, getStrongsHebrew, getChapterOriginals, getBookIndex } from '../lib/tauri';
+import type { WordMapping, StrongsGreek, StrongsHebrew, Book } from '../lib/tauri';
 
 // Extended types that include word_mappings (populated by getChapterOriginals)
 interface VerseWithWords {
@@ -283,34 +283,7 @@ function formatMorphologyParts(parts: MorphologyPart[]): string {
   return parts.map((p) => p.value).join(', ');
 }
 
-// ============================================================================
-// Books list
-// ============================================================================
-
-const BOOKS: { abbr: string; name: string }[] = [
-  { abbr: 'gen', name: 'Genesis' }, { abbr: 'exo', name: 'Exodus' }, { abbr: 'lev', name: 'Leviticus' },
-  { abbr: 'num', name: 'Numbers' }, { abbr: 'deu', name: 'Deuteronomy' }, { abbr: 'jos', name: 'Joshua' },
-  { abbr: 'jdg', name: 'Judges' }, { abbr: 'rut', name: 'Ruth' }, { abbr: '1sa', name: '1 Samuel' },
-  { abbr: '2sa', name: '2 Samuel' }, { abbr: '1ki', name: '1 Kings' }, { abbr: '2ki', name: '2 Kings' },
-  { abbr: '1ch', name: '1 Chronicles' }, { abbr: '2ch', name: '2 Chronicles' }, { abbr: 'ezr', name: 'Ezra' },
-  { abbr: 'neh', name: 'Nehemiah' }, { abbr: 'est', name: 'Esther' }, { abbr: 'job', name: 'Job' },
-  { abbr: 'psa', name: 'Psalm' }, { abbr: 'pro', name: 'Proverbs' }, { abbr: 'ecc', name: 'Ecclesiastes' },
-  { abbr: 'sng', name: 'Song of Solomon' }, { abbr: 'isa', name: 'Isaiah' }, { abbr: 'jer', name: 'Jeremiah' },
-  { abbr: 'lam', name: 'Lamentations' }, { abbr: 'eze', name: 'Ezekiel' }, { abbr: 'dan', name: 'Daniel' },
-  { abbr: 'hos', name: 'Hosea' }, { abbr: 'joe', name: 'Joel' }, { abbr: 'amo', name: 'Amos' },
-  { abbr: 'oba', name: 'Obadiah' }, { abbr: 'jon', name: 'Jonah' }, { abbr: 'mic', name: 'Micah' },
-  { abbr: 'nah', name: 'Nahum' }, { abbr: 'hab', name: 'Habakkuk' }, { abbr: 'zep', name: 'Zephaniah' },
-  { abbr: 'hag', name: 'Haggai' }, { abbr: 'zec', name: 'Zechariah' }, { abbr: 'mal', name: 'Malachi' },
-  { abbr: 'mat', name: 'Matthew' }, { abbr: 'mrk', name: 'Mark' }, { abbr: 'luk', name: 'Luke' },
-  { abbr: 'jhn', name: 'John' }, { abbr: 'act', name: 'Acts' }, { abbr: 'rom', name: 'Romans' },
-  { abbr: '1co', name: '1 Corinthians' }, { abbr: '2co', name: '2 Corinthians' }, { abbr: 'gal', name: 'Galatians' },
-  { abbr: 'eph', name: 'Ephesians' }, { abbr: 'php', name: 'Philippians' }, { abbr: 'col', name: 'Colossians' },
-  { abbr: '1th', name: '1 Thessalonians' }, { abbr: '2th', name: '2 Thessalonians' }, { abbr: '1ti', name: '1 Timothy' },
-  { abbr: '2ti', name: '2 Timothy' }, { abbr: 'tit', name: 'Titus' }, { abbr: 'phm', name: 'Philemon' },
-  { abbr: 'heb', name: 'Hebrews' }, { abbr: 'jas', name: 'James' }, { abbr: '1pe', name: '1 Peter' },
-  { abbr: '2pe', name: '2 Peter' }, { abbr: '1jn', name: '1 John' }, { abbr: '2jn', name: '2 John' },
-  { abbr: '3jn', name: '3 John' }, { abbr: 'jud', name: 'Jude' }, { abbr: 'rev', name: 'Revelation' },
-];
+// Books are loaded from the DB at runtime so abbreviations match `books.abbreviation`.
 
 // ============================================================================
 // Word Detail Popup
@@ -508,14 +481,20 @@ export default function Lexicon() {
   const [strongsError, setStrongsError] = useState('');
 
   // Chapter word list state
-  const [chapterBook, setChapterBook] = useState(currentBook || 'jhn');
+  const [books, setBooks] = useState<Book[]>([]);
+  const [chapterBook, setChapterBook] = useState(currentBook || 'john');
   const [chapterNum, setChapterNum] = useState(currentChapter || 1);
+
+  useEffect(() => {
+    getBookIndex().then(setBooks).catch(() => setBooks([]));
+  }, []);
   const [chapterVerses, setChapterVerses] = useState<VerseWithWords[]>([]);
   const [chapterLoading, setChapterLoading] = useState(false);
   const [chapterError, setChapterError] = useState('');
 
   // All words from chapter (flattened)
   const [allWords, setAllWords] = useState<WordMapping[]>([]);
+  const [chapterLoaded, setChapterLoaded] = useState(false);
 
   // Selected word for popup
   const [selectedWord, setSelectedWord] = useState<WordMapping | null>(null);
@@ -564,10 +543,12 @@ export default function Lexicon() {
     setAllWords([]);
     setGreekWords([]);
     setHebrewWords([]);
+    setChapterLoaded(false);
 
     try {
       const verses = await getChapterOriginals(chapterBook, chapterNum);
       setChapterVerses(verses);
+      setChapterLoaded(true);
 
       // Collect all word mappings
       const wordMap = new Map<string, WordMapping>();
@@ -986,8 +967,8 @@ export default function Lexicon() {
                   minWidth: '12rem',
                 }}
               >
-                {BOOKS.map((b) => (
-                  <option key={b.abbr} value={b.abbr}>{b.name}</option>
+                {books.map((b) => (
+                  <option key={b.abbreviation} value={b.abbreviation}>{b.full_name}</option>
                 ))}
               </select>
             </div>
@@ -1032,7 +1013,7 @@ export default function Lexicon() {
             </button>
 
             <button
-              onClick={() => { setChapterBook(currentBook || 'jhn'); setChapterNum(currentChapter || 1); }}
+              onClick={() => { setChapterBook(currentBook || 'john'); setChapterNum(currentChapter || 1); }}
               style={{
                 padding: '0.5rem 0.875rem',
                 borderRadius: '8px',
@@ -1170,8 +1151,17 @@ export default function Lexicon() {
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ margin: '0 auto 0.75rem', opacity: 0.3 }}>
                 <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
               </svg>
-              <p style={{ fontSize: '0.9rem', fontWeight: 500 }}>Select a book and chapter above</p>
-              <p style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}>Original Hebrew/Greek words will appear here with their Strong's numbers</p>
+              {chapterLoaded ? (
+                <>
+                  <p style={{ fontSize: '0.9rem', fontWeight: 500 }}>No original-language data for {chapterBook} {chapterNum}</p>
+                  <p style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}>WLC covers the Hebrew Old Testament; SBLGNT covers the Greek New Testament.</p>
+                </>
+              ) : (
+                <>
+                  <p style={{ fontSize: '0.9rem', fontWeight: 500 }}>Select a book and chapter above</p>
+                  <p style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}>Original Hebrew/Greek words will appear here with their Strong's numbers</p>
+                </>
+              )}
             </div>
           )}
         </div>

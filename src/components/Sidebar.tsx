@@ -11,7 +11,7 @@ interface SidebarProps {
 export function Sidebar({ onSelectBook, onSelectChapter }: SidebarProps) {
   const { currentBook, darkMode, sidebarOpen } = useAppStore();
   const [books, setBooks] = useState<Book[]>([]);
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ OT: false, NT: false });
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ OT: false, NT: false, NC: true });
   const [filter, setFilter] = useState('');
 
   useEffect(() => {
@@ -26,8 +26,9 @@ export function Sidebar({ onSelectBook, onSelectChapter }: SidebarProps) {
     ? books.filter((b) => b.full_name.toLowerCase().includes(q) || b.abbreviation.toLowerCase().includes(q))
     : books;
 
-  const otBooks = filteredBooks.filter((b) => b.testament === 'OT' || (b as unknown as { testament?: string }).testament === 'ot');
-  const ntBooks = filteredBooks.filter((b) => b.testament === 'NT' || (b as unknown as { testament?: string }).testament === 'nt');
+  const otBooks = filteredBooks.filter((b) => b.testament.toLowerCase() === 'ot');
+  const ntBooks = filteredBooks.filter((b) => b.testament.toLowerCase() === 'nt');
+  const ncBooks = filteredBooks.filter((b) => b.testament.toLowerCase() === 'apoc');
 
   const toggleSection = (section: string) => {
     setCollapsed((prev) => ({ ...prev, [section]: !prev[section] }));
@@ -53,13 +54,26 @@ export function Sidebar({ onSelectBook, onSelectChapter }: SidebarProps) {
         >
           <polyline points="6 9 12 15 18 9" />
         </svg>
-        {title === 'OT' ? 'Old Testament' : 'New Testament'}
+        {title === 'OT' ? 'Old Testament' : title === 'NT' ? 'New Testament' : 'Non-Canonical'}
         <span style={{ marginLeft: 'auto', opacity: 0.6, fontSize: '0.65rem' }}>
           {sectionBooks.length}
         </span>
       </div>
       {!collapsed[title] && (
         <div style={{ paddingBottom: '0.25rem' }}>
+          {sectionBooks.length === 0 && title === 'NC' && (
+            <div
+              style={{
+                padding: '0.5rem 0.75rem 0.75rem',
+                fontSize: '0.7rem',
+                color: darkMode ? '#a8a29e' : '#78716c',
+                fontStyle: 'italic',
+                lineHeight: 1.5,
+              }}
+            >
+              No texts loaded yet. Run <code>scripts/ingest_apocrypha.py</code> to add the KJV Apocrypha.
+            </div>
+          )}
           {sectionBooks.map((book) => (
             <button
               key={book.abbreviation}
@@ -74,7 +88,7 @@ export function Sidebar({ onSelectBook, onSelectChapter }: SidebarProps) {
                 width: '100%',
                 padding: '0.375rem 0.75rem',
                 background:
-                  currentBook === book.abbreviation
+                  currentBook.toLowerCase() === book.abbreviation.toLowerCase()
                     ? darkMode ? '#78350f' : '#fef3c7'
                     : 'transparent',
                 border: 'none',
@@ -85,12 +99,12 @@ export function Sidebar({ onSelectBook, onSelectChapter }: SidebarProps) {
                 color: darkMode ? '#f5f5f4' : '#292524',
               }}
               onMouseEnter={(e) => {
-                if (currentBook !== book.abbreviation) {
+                if (currentBook.toLowerCase() !== book.abbreviation.toLowerCase()) {
                   e.currentTarget.style.background = darkMode ? '#2d2d24' : '#f5f5f4';
                 }
               }}
               onMouseLeave={(e) => {
-                if (currentBook !== book.abbreviation) {
+                if (currentBook.toLowerCase() !== book.abbreviation.toLowerCase()) {
                   e.currentTarget.style.background = 'transparent';
                 }
               }}
@@ -151,6 +165,8 @@ export function Sidebar({ onSelectBook, onSelectChapter }: SidebarProps) {
           {renderSection('OT', otBooks)}
           <div style={{ height: '0.5rem' }} />
           {renderSection('NT', ntBooks)}
+          <div style={{ height: '0.5rem' }} />
+          {renderSection('NC', ncBooks)}
         </>
       ) : (
         <p style={{ textAlign: 'center', padding: '2rem', color: darkMode ? '#a8a29e' : '#78716c', fontSize: '0.8rem' }}>

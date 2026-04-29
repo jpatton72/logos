@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from './store/useAppStore';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -11,12 +11,16 @@ import Lexicon from './pages/Lexicon';
 import { getBookmarks, deleteBookmark, getNotes, deleteNote, getStrongsHebrew, getStrongsGreek, createBookmark } from './api';
 import { NoteForm } from './components/NoteForm';
 import { AiPanel, type WordContext } from './components/AiPanel';
+import { StrongsSidebar } from './components/StrongsSidebar';
 import type { BookmarkWithVerse, Note as TauriNote } from './lib/tauri';
 import { invoke } from '@tauri-apps/api/core';
 
+const ORIGINAL_LANG_CODES = new Set(['wlc', 'sblgnt', 'oshb']);
+
 function AppInner() {
   const navigate = useNavigate();
-  const { darkMode, setSidebarOpen, currentBook, currentChapter, bookmarks } = useAppStore();
+  const location = useLocation();
+  const { darkMode, setSidebarOpen, currentBook, currentChapter, currentVerse, bookmarks, activeTranslations } = useAppStore();
   const [showSettings, setShowSettings] = useState(false);
   const [showBookmarks, setShowBookmarks] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
@@ -24,28 +28,49 @@ function AppInner() {
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [aiWordContext, setAiWordContext] = useState<WordContext | undefined>(undefined);
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
+  const [strongsClosed, setStrongsClosed] = useState(false);
+
+  // Auto-reopen the Strong's sidebar whenever the active translations change
+  // — a user toggling to/from an original language should see the panel again.
+  const activeKey = activeTranslations.join('|');
+  useEffect(() => { setStrongsClosed(false); }, [activeKey]);
+
+  const hasOriginalLang = activeTranslations.some((t) =>
+    ORIGINAL_LANG_CODES.has(t.toLowerCase()),
+  );
+  const showStrongsSidebar = location.pathname === '/' && hasOriginalLang && !strongsClosed;
 
   // Get chapter verse counts
-  const chapterCounts: Record<string, number> = { gen: 50, exod: 40, lev: 27, num: 36, deut: 34, josh: 24, '1sam': 31, '2sam': 24, '1kgs': 22, '2kgs': 25, '1chr': 29, '2chr': 36, ezra: 10, neh: 13, est: 10, job: 42, ps: 150, prov: 31, eccl: 12, song: 8, isa: 66, jer: 52, lam: 5, ezek: 48, dan: 12, hosea: 14, joel: 3, amos: 9, jonah: 4, mic: 7, nah: 3, hab: 3, zeph: 3, hag: 2, zech: 14, mal: 4, matt: 28, mark: 16, luke: 24, john: 21, acts: 28, rom: 16, '1cor': 16, '2cor': 13, gal: 6, eph: 6, phil: 4, col: 4, '1thess': 5, '2thess': 3, '1tim': 6, '2tim': 4, titus: 3, phlm: 1, heb: 13, jas: 5, '1pet': 5, '2pet': 3, '1john': 5, '2john': 1, '3john': 1, jude: 1, rev: 22, ruth: 4, obad: 1 };
+  const chapterCounts: Record<string, number> = { gen: 50, exod: 40, lev: 27, num: 36, deut: 34, josh: 24, judg: 21, ruth: 4, '1sam': 31, '2sam': 24, '1kgs': 22, '2kgs': 25, '1chr': 29, '2chr': 36, ezra: 10, neh: 13, est: 10, job: 42, ps: 150, prov: 31, eccl: 12, song: 8, isa: 66, jer: 52, lam: 5, ezek: 48, dan: 12, hosea: 14, joel: 3, amos: 9, obad: 1, jonah: 4, mic: 7, nah: 3, hab: 3, zeph: 3, hag: 2, zech: 14, mal: 4, matt: 28, mark: 16, luke: 24, john: 21, acts: 28, rom: 16, '1cor': 16, '2cor': 13, gal: 6, eph: 6, phil: 4, col: 4, '1thess': 5, '2thess': 3, '1tim': 6, '2tim': 4, titus: 3, phlm: 1, heb: 13, jas: 5, '1pet': 5, '2pet': 3, '1john': 5, '2john': 1, '3john': 1, jude: 1, rev: 22, '1esd': 9, '2esd': 16, tob: 14, jdt: 16, esthg: 10, wis: 19, sir: 51, bar: 5, epjer: 1, prazar: 1, sus: 1, bel: 1, prman: 1, '1macc': 16, '2macc': 15 };
 
   const handleNextChapter = () => {
-    const count = chapterCounts[currentBook] || 1;
+    const key = currentBook.toLowerCase();
+    const count = chapterCounts[key] || 1;
     if (currentChapter < count) {
       useAppStore.getState().setChapter(currentChapter + 1);
+    } else {
+      const books = ['gen', 'exod', 'lev', 'num', 'deut', 'josh', 'judg', 'ruth', '1sam', '2sam', '1kgs', '2kgs', '1chr', '2chr', 'ezra', 'neh', 'est', 'job', 'ps', 'prov', 'eccl', 'song', 'isa', 'jer', 'lam', 'ezek', 'dan', 'hosea', 'joel', 'amos', 'obad', 'jonah', 'mic', 'nah', 'hab', 'zeph', 'hag', 'zech', 'mal', 'matt', 'mark', 'luke', 'john', 'acts', 'rom', '1cor', '2cor', 'gal', 'eph', 'phil', 'col', '1thess', '2thess', '1tim', '2tim', 'titus', 'phlm', 'heb', 'jas', '1pet', '2pet', '1john', '2john', '3john', 'jude', 'rev', '1esd', '2esd', 'tob', 'jdt', 'esthg', 'wis', 'sir', 'bar', 'epjer', 'prazar', 'sus', 'bel', 'prman', '1macc', '2macc'];
+      const idx = books.indexOf(key);
+      if (idx >= 0 && idx < books.length - 1) {
+        useAppStore.getState().setBook(books[idx + 1]);
+        useAppStore.getState().setChapter(1);
+      }
     }
   };
 
   const handlePrevChapter = () => {
-    if (currentBook === 'gen' && currentChapter === 1) return;
+    const key = currentBook.toLowerCase();
+    if (key === 'gen' && currentChapter === 1) return;
     if (currentChapter > 1) {
       useAppStore.getState().setChapter(currentChapter - 1);
     } else {
-      const books = ['gen', 'exod', 'lev', 'num', 'deut', 'josh', 'judg', 'ruth', '1sam', '2sam', '1kgs', '2kgs', '1chr', '2chr', 'ezra', 'neh', 'est', 'job', 'ps', 'prov', 'eccl', 'song', 'isa', 'jer', 'lam', 'ezek', 'dan', 'hosea', 'joel', 'amos', 'obad', 'jonah', 'mic', 'nah', 'hab', 'zeph', 'hag', 'zech', 'mal', 'matt', 'mark', 'luke', 'john', 'acts', 'rom', '1cor', '2cor', 'gal', 'eph', 'phil', 'col', '1thess', '2thess', '1tim', '2tim', 'titus', 'phlm', 'heb', 'jas', '1pet', '2pet', '1john', '2john', '3john', 'jude', 'rev'];
-      const idx = books.indexOf(currentBook);
+      const books = ['gen', 'exod', 'lev', 'num', 'deut', 'josh', 'judg', 'ruth', '1sam', '2sam', '1kgs', '2kgs', '1chr', '2chr', 'ezra', 'neh', 'est', 'job', 'ps', 'prov', 'eccl', 'song', 'isa', 'jer', 'lam', 'ezek', 'dan', 'hosea', 'joel', 'amos', 'obad', 'jonah', 'mic', 'nah', 'hab', 'zeph', 'hag', 'zech', 'mal', 'matt', 'mark', 'luke', 'john', 'acts', 'rom', '1cor', '2cor', 'gal', 'eph', 'phil', 'col', '1thess', '2thess', '1tim', '2tim', 'titus', 'phlm', 'heb', 'jas', '1pet', '2pet', '1john', '2john', '3john', 'jude', 'rev', '1esd', '2esd', 'tob', 'jdt', 'esthg', 'wis', 'sir', 'bar', 'epjer', 'prazar', 'sus', 'bel', 'prman', '1macc', '2macc'];
+      const idx = books.indexOf(key);
       if (idx > 0) {
         const prevBook = books[idx - 1];
+        const prevCounts: Record<string, number> = chapterCounts;
         useAppStore.getState().setBook(prevBook);
-        useAppStore.getState().setChapter(1);
+        useAppStore.getState().setChapter(prevCounts[prevBook] || 1);
       }
     }
   };
@@ -163,81 +188,103 @@ function AppInner() {
   }, [darkMode]);
 
   return (
-    <BrowserRouter>
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          height: '100vh',
-          backgroundColor: darkMode ? '#1a1a14' : '#fefce8',
-          color: darkMode ? '#f5f5f4' : '#292524',
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100vh',
+        backgroundColor: darkMode ? '#1a1a14' : '#fefce8',
+        color: darkMode ? '#f5f5f4' : '#292524',
+      }}
+    >
+      <Header
+        onOpenSettings={() => setShowSettings(true)}
+        onOpenBookmarks={() => setShowBookmarks(true)}
+        onOpenNotes={() => setShowNotes(true)}
+        onOpenCompare={() => navigate('/compare')}
+        onOpenLexicon={() => navigate('/lexicon')}
+        onGoHome={() => {
+          setShowSettings(false);
+          setShowBookmarks(false);
+          setShowNotes(false);
+          setShowStrongsPopup(null);
+          setShowAiPanel(false);
+          setAiWordContext(undefined);
+          setShowKeyboardHelp(false);
+          const store = useAppStore.getState();
+          store.setBook('gen');
+          store.setChapter(1);
+          store.setVerse(null);
+          store.setActiveTranslations(['KJV']);
+          navigate('/');
         }}
-      >
-        <Header
-          onOpenSettings={() => setShowSettings(true)}
-          onOpenBookmarks={() => setShowBookmarks(true)}
-          onOpenNotes={() => setShowNotes(true)}
-          onOpenCompare={() => navigate('/compare')}
-          onOpenLexicon={() => navigate('/lexicon')}
+      />
+
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        <Sidebar
+          onSelectBook={(book) => {
+            useAppStore.getState().setBook(book);
+            setSidebarOpen(false);
+          }}
+          onSelectChapter={(chapter) => {
+            useAppStore.getState().setChapter(chapter);
+          }}
         />
 
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <Sidebar
-            onSelectBook={(book) => {
-              useAppStore.getState().setBook(book);
-              setSidebarOpen(false);
-            }}
-            onSelectChapter={(chapter) => {
-              useAppStore.getState().setChapter(chapter);
-            }}
-          />
-
-          <main style={{ flex: 1, overflowY: 'auto', display: 'flex' }}>
-            <div style={{ flex: 1, overflowY: 'auto' }}>
-              <Routes>
-                <Route
-                  path="/"
-                  element={
-                    <ReadingPage onOpenAi={() => setShowAiPanel(true)} />
-                  }
-                />
-                <Route path="/search" element={<SearchPage />} />
-                <Route path="/lexicon" element={<Lexicon />} />
-                <Route path="/compare" element={<Compare />} />
-                <Route path="/settings" element={<Settings />} />
-              </Routes>
+        <main style={{ flex: 1, overflowY: 'auto', display: 'flex' }}>
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            <Routes>
+              <Route
+                path="/"
+                element={
+                  <ReadingPage onOpenAi={() => setShowAiPanel(true)} />
+                }
+              />
+              <Route path="/search" element={<SearchPage />} />
+              <Route path="/lexicon" element={<Lexicon />} />
+              <Route path="/compare" element={<Compare />} />
+              <Route path="/settings" element={<Settings />} />
+            </Routes>
+          </div>
+          {showStrongsSidebar && (
+            <StrongsSidebar
+              book={currentBook}
+              chapter={currentChapter}
+              verseNum={currentVerse}
+              onClose={() => setStrongsClosed(true)}
+            />
+          )}
+          {showAiPanel && (
+            <div style={{ width: '380px', flexShrink: 0, borderLeft: darkMode ? '1px solid #3c3a36' : '1px solid #e7e5e4', display: 'flex', flexDirection: 'column' }}>
+              <AiPanel
+                verses={[]}
+                wordContext={aiWordContext}
+                onClose={() => { setShowAiPanel(false); setAiWordContext(undefined); }}
+              />
             </div>
-            {showAiPanel && (
-              <div style={{ width: '380px', flexShrink: 0, borderLeft: darkMode ? '1px solid #3c3a36' : '1px solid #e7e5e4', display: 'flex', flexDirection: 'column' }}>
-                <AiPanel
-                  verses={[]}
-                  wordContext={aiWordContext}
-                  onClose={() => { setShowAiPanel(false); setAiWordContext(undefined); }}
-                />
-              </div>
-            )}
-          </main>
-        </div>
+          )}
+        </main>
+      </div>
 
-        {/* Settings Modal */}
-        {showSettings && (
-          <SettingsModal darkMode={darkMode} onClose={() => setShowSettings(false)} />
-        )}
+      {/* Settings Modal */}
+      {showSettings && (
+        <SettingsModal darkMode={darkMode} onClose={() => setShowSettings(false)} />
+      )}
 
-        {/* Bookmarks Panel */}
-        {showBookmarks && (
-          <BookmarkPanelModal darkMode={darkMode} onClose={() => setShowBookmarks(false)} />
-        )}
+      {/* Bookmarks Panel */}
+      {showBookmarks && (
+        <BookmarkPanelModal darkMode={darkMode} onClose={() => setShowBookmarks(false)} />
+      )}
 
-        {/* Notes Panel */}
-        {showNotes && (
-          <NotesPanelModal darkMode={darkMode} onClose={() => setShowNotes(false)} />
-        )}
+      {/* Notes Panel */}
+      {showNotes && (
+        <NotesPanelModal darkMode={darkMode} onClose={() => setShowNotes(false)} />
+      )}
 
-        {/* Strongs Popup */}
-        {showStrongsPopup && (
-          <StrongsPopupModal data={showStrongsPopup} darkMode={darkMode} onClose={() => setShowStrongsPopup(null)} onOpenAi={(wordContext) => { setShowStrongsPopup(null); setAiWordContext(wordContext); setShowAiPanel(true); }} />
-        )}
+      {/* Strongs Popup */}
+      {showStrongsPopup && (
+        <StrongsPopupModal data={showStrongsPopup} darkMode={darkMode} onClose={() => setShowStrongsPopup(null)} onOpenAi={(wordContext) => { setShowStrongsPopup(null); setAiWordContext(wordContext); setShowAiPanel(true); }} />
+      )}
 
         {/* Keyboard Shortcuts Help Modal */}
         {showKeyboardHelp && (
@@ -284,13 +331,16 @@ function AppInner() {
             </div>
           </div>
         )}
-      </div>
-    </BrowserRouter>
+    </div>
   );
 }
 
 export default function App() {
-  return <AppInner />;
+  return (
+    <BrowserRouter>
+      <AppInner />
+    </BrowserRouter>
+  );
 }
 
 // Inline modals to avoid separate file overhead
@@ -364,6 +414,7 @@ function BookmarkPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose:
   const handleDelete = async (id: number) => {
     try {
       await deleteBookmark(id);
+      useAppStore.getState().removeBookmark(id);
       await fetchBookmarks();
     } catch (e) {
       console.error('Failed to delete bookmark:', e);

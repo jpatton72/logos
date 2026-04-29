@@ -174,18 +174,6 @@ export function AiPanel({ verses = [], wordContext, onClose }: AiPanelProps) {
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <span style={{ fontSize: '1rem', fontWeight: 700 }}>Ask AI</span>
-          <span
-            style={{
-              fontSize: '0.65rem',
-              padding: '0.1rem 0.4rem',
-              borderRadius: '9999px',
-              backgroundColor: darkMode ? '#78350f' : '#fef3c7',
-              color: darkMode ? '#fcd34d' : '#92400e',
-              fontWeight: 600,
-            }}
-          >
-            Phase 7
-          </span>
         </div>
         <button
           onClick={onClose}
