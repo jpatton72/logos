@@ -1,31 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { getPreference, setPreference } from '../lib/tauri';
-
-type AiProvider = 'openai' | 'anthropic' | 'google' | 'groq' | 'ollama';
-
-const PROVIDER_LABELS: Record<AiProvider, string> = {
-  openai: 'OpenAI',
-  anthropic: 'Anthropic',
-  google: 'Google AI',
-  groq: 'Groq',
-  ollama: 'Ollama (local)',
-};
-
-const PROVIDER_MODELS: Record<AiProvider, string[]> = {
-  openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo'],
-  anthropic: ['claude-3-5-haiku-20241022', 'claude-3-5-sonnet-20241010', 'claude-3-opus-20240229'],
-  google: ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.0-pro'],
-  groq: ['llama-3.1-70b-versatile', 'mixtral-8x7b-32768', 'llama3-70b-8192'],
-  ollama: ['llama3.2', 'phi3', 'mistral', 'gemma2'],
-};
+import { type AiProvider, PROVIDER_LABELS, PROVIDER_MODELS, defaultModelFor } from '../lib/aiModels';
 
 export default function Settings() {
   const { darkMode, toggleDarkMode, fontSize, setFontSize } = useAppStore();
 
   // AI settings state
   const [provider, setProvider] = useState<AiProvider>('openai');
-  const [model, setModel] = useState('');
+  const [model, setModel] = useState<string>(defaultModelFor('openai'));
   const [apiKeys, setApiKeys] = useState<Record<AiProvider, string>>({
     openai: '',
     anthropic: '',
@@ -43,12 +26,12 @@ export default function Settings() {
         getPreference('ai_provider'),
         getPreference('ai_model'),
       ]);
-      if (savedProvider && savedProvider in PROVIDER_LABELS) {
-        setProvider(savedProvider as AiProvider);
-      }
-      if (savedModel) {
-        setModel(savedModel);
-      }
+      const resolvedProvider: AiProvider =
+        savedProvider && savedProvider in PROVIDER_LABELS
+          ? (savedProvider as AiProvider)
+          : 'openai';
+      setProvider(resolvedProvider);
+      setModel(savedModel && savedModel.trim() !== '' ? savedModel : defaultModelFor(resolvedProvider));
       // Load API keys
       const providers: AiProvider[] = ['openai', 'anthropic', 'google', 'groq', 'ollama'];
       const results = await Promise.all(
@@ -65,16 +48,17 @@ export default function Settings() {
 
   const handleProviderChange = (newProvider: AiProvider) => {
     setProvider(newProvider);
-    setModel(''); // reset model when provider changes
+    setModel(defaultModelFor(newProvider)); // pick the new provider's top suggestion
   };
 
   const handleSave = async () => {
     setSaving(true);
     setSaved(false);
     try {
+      const resolvedModel = model.trim() === '' ? defaultModelFor(provider) : model.trim();
       await Promise.all([
         setPreference('ai_provider', provider),
-        setPreference('ai_model', model),
+        setPreference('ai_model', resolvedModel),
         setPreference('api_key_openai', apiKeys.openai),
         setPreference('api_key_anthropic', apiKeys.anthropic),
         setPreference('api_key_google', apiKeys.google),
@@ -176,19 +160,29 @@ export default function Settings() {
           </select>
         </div>
 
-        {/* Model selector */}
+        {/* Model selector — free text with curated suggestions. */}
         <div style={{ marginBottom: '1rem' }}>
           <label style={labelStyle}>Model</label>
-          <select
+          <input
+            type="text"
+            list={`models-${provider}`}
             value={model}
             onChange={(e) => setModel(e.target.value)}
-            style={{ ...inputStyle, cursor: 'pointer' }}
-          >
-            <option value="">Default ({PROVIDER_MODELS[provider][0]})</option>
+            placeholder={defaultModelFor(provider)}
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
+            style={inputStyle}
+          />
+          <datalist id={`models-${provider}`}>
             {PROVIDER_MODELS[provider].map((m) => (
-              <option key={m} value={m}>{m}</option>
+              <option key={m} value={m} />
             ))}
-          </select>
+          </datalist>
+          <p style={{ margin: '0.25rem 0 0', fontSize: '0.7rem', color: darkMode ? '#78716c' : '#a8a29e' }}>
+            Type any model ID supported by {PROVIDER_LABELS[provider]}, or pick from the suggestions.
+            Leave blank to use <code>{defaultModelFor(provider)}</code>.
+          </p>
         </div>
 
         {/* API Key inputs */}

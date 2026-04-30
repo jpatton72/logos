@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { getPreference } from '../lib/tauri';
 import { aiChat, ChatMessage } from '../lib/ai';
+import { defaultModelFor } from '../lib/aiModels';
 
 interface VerseRef {
   book_abbreviation: string;
@@ -22,6 +23,14 @@ export interface AiPanelProps {
   verses?: VerseRef[];
   wordContext?: WordContext;
   onClose: () => void;
+  /**
+   * Override for the "Deselect all" button. The Reader leaves this
+   * undefined so the panel falls back to clearing the global
+   * `selectedVerses` store; Compare passes its own handler that resets
+   * its local `verse` row state (since Compare's AI context is the
+   * active row, not the global selection).
+   */
+  onDeselectAll?: () => void;
 }
 
 const SYSTEM_PROMPT_BASE = `You are a Bible study assistant. Answer questions about the biblical text, its Greek/Hebrew words, and related passages. Keep answers concise and scholarly.`;
@@ -55,8 +64,9 @@ function buildSystemPrompt(verses: VerseRef[], word?: WordContext): string {
   return prompt;
 }
 
-export function AiPanel({ verses = [], wordContext, onClose }: AiPanelProps) {
-  const { darkMode } = useAppStore();
+export function AiPanel({ verses = [], wordContext, onClose, onDeselectAll }: AiPanelProps) {
+  const { darkMode, clearVerseSelection } = useAppStore();
+  const deselectAll = onDeselectAll ?? clearVerseSelection;
   const [question, setQuestion] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -71,22 +81,41 @@ export function AiPanel({ verses = [], wordContext, onClose }: AiPanelProps) {
     setLoading(true);
 
     try {
-      // Load provider and model from preferences
-      const [provider, model] = await Promise.all([
+      // Load provider, model, and API key from preferences.
+      const [providerPref, modelPref] = await Promise.all([
         getPreference('ai_provider'),
         getPreference('ai_model'),
       ]);
 
-      if (!provider || !model) {
-        const stubResponse: ChatMessage = {
-          role: 'assistant',
-          content:
-            'AI is not configured. Visit the Settings page to select a provider, model, and add your API key.',
-        };
-        setMessages((prev) => [...prev, stubResponse]);
+      if (!providerPref) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            content:
+              'No AI provider selected. Open Settings, choose a provider (OpenAI, Anthropic, Google, Groq, or Ollama), enter your API key, and click Save.',
+          },
+        ]);
         setLoading(false);
         return;
       }
+
+      const apiKey = await getPreference(`api_key_${providerPref}`);
+      // Ollama is local and may not require a key, so we don't pre-flight it.
+      if (providerPref !== 'ollama' && !apiKey) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: `No API key saved for ${providerPref}. Open Settings, paste your API key in the ${providerPref} field, and click Save.`,
+          },
+        ]);
+        setLoading(false);
+        return;
+      }
+
+      // Empty model pref → fall back to the provider's default suggestion.
+      const model = modelPref && modelPref.trim() !== '' ? modelPref : defaultModelFor(providerPref);
 
       // Build messages: system prompt + conversation history + new user question
       const conversationHistory = [...messages, userMsg];
@@ -95,12 +124,15 @@ export function AiPanel({ verses = [], wordContext, onClose }: AiPanelProps) {
         ...conversationHistory,
       ];
 
-      console.log('[AiPanel] Sending AI request:', { provider, model, messageCount: allMessages.length });
+      console.log('[AiPanel] Sending AI request:', { provider: providerPref, model, messageCount: allMessages.length });
 
-      // The backend reads the API key from user_preferences using the provider name
-      const response = await aiChat(allMessages, provider, model);
+      // The backend reads the API key from user_preferences using the provider name.
+      const response = await aiChat(allMessages, providerPref, model);
       const assistantMsg: ChatMessage = { role: 'assistant', content: response };
       setMessages((prev) => [...prev, assistantMsg]);
+      // Per spec: the persistent verse selection clears once a question
+      // has been asked, so the next question starts with a fresh slate.
+      deselectAll();
     } catch (e: unknown) {
       console.error('[AiPanel] Error:', e);
       const errorMessage = e instanceof Error ? e.message : String(e);
@@ -203,15 +235,41 @@ export function AiPanel({ verses = [], wordContext, onClose }: AiPanelProps) {
         >
           <div
             style={{
-              fontSize: '0.65rem',
-              fontWeight: 700,
-              color: darkMode ? '#78716c' : '#a8a29e',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
               marginBottom: '0.25rem',
+              gap: '0.5rem',
             }}
           >
-            Selected Verses
+            <span
+              style={{
+                fontSize: '0.65rem',
+                fontWeight: 700,
+                color: darkMode ? '#78716c' : '#a8a29e',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+              }}
+            >
+              Selected Verses ({verses.length})
+            </span>
+            <button
+              type="button"
+              onClick={deselectAll}
+              title="Deselect all verses"
+              style={{
+                fontSize: '0.65rem',
+                fontWeight: 600,
+                padding: '0.15rem 0.5rem',
+                borderRadius: '9999px',
+                border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}`,
+                background: 'transparent',
+                color: darkMode ? '#a8a29e' : '#78716c',
+                cursor: 'pointer',
+              }}
+            >
+              Deselect all
+            </button>
           </div>
           {verses.map((v) => (
             <div

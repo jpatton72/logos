@@ -8,7 +8,7 @@ import { SearchPage } from './pages/SearchPage';
 import Settings from './pages/Settings';
 import Compare from './pages/Compare';
 import Lexicon from './pages/Lexicon';
-import { getBookmarks, deleteBookmark, getNotes, deleteNote, getStrongsHebrew, getStrongsGreek, createBookmark } from './api';
+import { getBookmarks, deleteBookmark, getNotes, deleteNote, getStrongsHebrew, getStrongsGreek, createBookmark, getVerse } from './api';
 import { NoteForm } from './components/NoteForm';
 import { AiPanel, type WordContext } from './components/AiPanel';
 import { StrongsSidebar } from './components/StrongsSidebar';
@@ -20,13 +20,14 @@ const ORIGINAL_LANG_CODES = new Set(['wlc', 'sblgnt', 'oshb']);
 function AppInner() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { darkMode, setSidebarOpen, currentBook, currentChapter, currentVerse, bookmarks, activeTranslations } = useAppStore();
+  const { darkMode, setSidebarOpen, currentBook, currentChapter, selectedVerses, bookmarks, activeTranslations } = useAppStore();
   const [showSettings, setShowSettings] = useState(false);
   const [showBookmarks, setShowBookmarks] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
   const [showStrongsPopup, setShowStrongsPopup] = useState<{ word: string; strongsId: string; language: string } | null>(null);
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [aiWordContext, setAiWordContext] = useState<WordContext | undefined>(undefined);
+  const [aiVerses, setAiVerses] = useState<{ book_abbreviation: string; chapter: number; verse_num: number; text: string }[]>([]);
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
   const [strongsClosed, setStrongsClosed] = useState(false);
 
@@ -39,6 +40,58 @@ function AppInner() {
     ORIGINAL_LANG_CODES.has(t.toLowerCase()),
   );
   const showStrongsSidebar = location.pathname === '/' && hasOriginalLang && !strongsClosed;
+
+  // Fetch the text of every selected verse — even ones from other books or
+  // chapters than the one the user is currently reading — so the AI panel
+  // can present them all as context. Re-runs whenever the selection changes
+  // or the active translation changes (book/chapter no longer reset
+  // selection, so they don't trigger a refetch).
+  const selectedKey = selectedVerses.map((v) => `${v.book}:${v.chapter}:${v.verseNum}`).join(',');
+  useEffect(() => {
+    if (selectedVerses.length === 0) {
+      setAiVerses([]);
+      return;
+    }
+    let cancelled = false;
+    const translation = activeTranslations[0] ?? 'KJV';
+    Promise.all(
+      selectedVerses.map((ref) =>
+        getVerse(ref.book, ref.chapter, ref.verseNum, translation).catch(() => null),
+      ),
+    )
+      .then((results) => {
+        if (cancelled) return;
+        const verses = results
+          .filter((v): v is NonNullable<typeof v> => v != null)
+          .map((v) => ({
+            book_abbreviation: v.book_abbreviation,
+            chapter: v.chapter,
+            verse_num: v.verse_num,
+            text: v.text,
+          }));
+        setAiVerses(verses);
+      })
+      .catch(() => {
+        if (!cancelled) setAiVerses([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedKey covers selectedVerses
+  }, [selectedKey, activeTranslations.join('|')]);
+
+  // The in-chapter focus drives the Strong's sidebar. It's the most recently
+  // selected verse that happens to be in the chapter the user is currently
+  // viewing — null if no selection lives in this chapter.
+  const inChapterFocus = (() => {
+    for (let i = selectedVerses.length - 1; i >= 0; i--) {
+      const v = selectedVerses[i];
+      if (v.book === currentBook.toLowerCase() && v.chapter === currentChapter) {
+        return v.verseNum;
+      }
+    }
+    return null;
+  })();
 
   // Get chapter verse counts
   const chapterCounts: Record<string, number> = { gen: 50, exod: 40, lev: 27, num: 36, deut: 34, josh: 24, judg: 21, ruth: 4, '1sam': 31, '2sam': 24, '1kgs': 22, '2kgs': 25, '1chr': 29, '2chr': 36, ezra: 10, neh: 13, est: 10, job: 42, ps: 150, prov: 31, eccl: 12, song: 8, isa: 66, jer: 52, lam: 5, ezek: 48, dan: 12, hosea: 14, joel: 3, amos: 9, obad: 1, jonah: 4, mic: 7, nah: 3, hab: 3, zeph: 3, hag: 2, zech: 14, mal: 4, matt: 28, mark: 16, luke: 24, john: 21, acts: 28, rom: 16, '1cor': 16, '2cor': 13, gal: 6, eph: 6, phil: 4, col: 4, '1thess': 5, '2thess': 3, '1tim': 6, '2tim': 4, titus: 3, phlm: 1, heb: 13, jas: 5, '1pet': 5, '2pet': 3, '1john': 5, '2john': 1, '3john': 1, jude: 1, rev: 22, '1esd': 9, '2esd': 16, tob: 14, jdt: 16, esthg: 10, wis: 19, sir: 51, bar: 5, epjer: 1, prazar: 1, sus: 1, bel: 1, prman: 1, '1macc': 16, '2macc': 15 };
@@ -214,7 +267,7 @@ function AppInner() {
           const store = useAppStore.getState();
           store.setBook('gen');
           store.setChapter(1);
-          store.setVerse(null);
+          store.clearVerseSelection();
           store.setActiveTranslations(['KJV']);
           navigate('/');
         }}
@@ -250,14 +303,14 @@ function AppInner() {
             <StrongsSidebar
               book={currentBook}
               chapter={currentChapter}
-              verseNum={currentVerse}
+              verseNum={inChapterFocus}
               onClose={() => setStrongsClosed(true)}
             />
           )}
           {showAiPanel && (
             <div style={{ width: '380px', flexShrink: 0, borderLeft: darkMode ? '1px solid #3c3a36' : '1px solid #e7e5e4', display: 'flex', flexDirection: 'column' }}>
               <AiPanel
-                verses={[]}
+                verses={aiVerses}
                 wordContext={aiWordContext}
                 onClose={() => { setShowAiPanel(false); setAiWordContext(undefined); }}
               />

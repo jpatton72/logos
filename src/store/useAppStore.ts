@@ -2,6 +2,18 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Book } from '../lib/tauri';
 
+// A canonical reference to a single verse. `book` is the lower-cased
+// abbreviation (e.g. "gen", "matt") to match the way `currentBook` is stored.
+export interface VerseRef {
+  book: string;
+  chapter: number;
+  verseNum: number;
+}
+
+function sameRef(a: VerseRef, b: VerseRef): boolean {
+  return a.book === b.book && a.chapter === b.chapter && a.verseNum === b.verseNum;
+}
+
 export interface Bookmark {
   id: number;
   verse_id: number;
@@ -28,7 +40,11 @@ export interface Note {
 interface AppState {
   currentBook: string;
   currentChapter: number;
-  currentVerse: number | null;
+  // The user's verse selection. Persists across book/chapter navigation so
+  // the user can build a multi-passage AI prompt (e.g. Gen 1:1 + Exod 3:14).
+  // Order = selection order. Cleared by `clearVerseSelection()` or the
+  // AiPanel right after a question is sent.
+  selectedVerses: VerseRef[];
   activeTranslations: string[];
   sidebarOpen: boolean;
   darkMode: boolean;
@@ -38,7 +54,9 @@ interface AppState {
   // Actions
   setBook: (book: string) => void;
   setChapter: (chapter: number) => void;
-  setVerse: (verse: number | null) => void;
+  toggleVerseSelection: (ref: VerseRef) => void;
+  extendVerseSelection: (ref: VerseRef) => void;
+  clearVerseSelection: () => void;
   addTranslation: (trans: string) => void;
   removeTranslation: (trans: string) => void;
   setActiveTranslations: (translations: string[]) => void;
@@ -58,7 +76,7 @@ export const useAppStore = create<AppState>()(
     (set) => ({
       currentBook: 'gen',
       currentChapter: 1,
-      currentVerse: null,
+      selectedVerses: [],
       activeTranslations: ['KJV'],
       sidebarOpen: true,
       darkMode: false,
@@ -66,12 +84,57 @@ export const useAppStore = create<AppState>()(
       notes: [],
       fontSize: 18,
 
-      setBook: (book: string | Book) => set({
-        currentBook: (typeof book === 'string' ? book : book.abbreviation).toLowerCase(),
-        currentVerse: null,
-      }),
-      setChapter: (chapter) => set({ currentChapter: chapter, currentVerse: null }),
-      setVerse: (verse) => set({ currentVerse: verse }),
+      // Navigation does NOT clear the verse selection — the whole point of
+      // the persistent selection is to let the user gather verses from
+      // multiple chapters/books before asking the AI about them.
+      setBook: (book: string | Book) =>
+        set({
+          currentBook: (typeof book === 'string' ? book : book.abbreviation).toLowerCase(),
+        }),
+      setChapter: (chapter) => set({ currentChapter: chapter }),
+
+      // Plain-click + Ctrl/Cmd-click both route here: toggle the ref in the
+      // selection list (add if absent, remove if present).
+      toggleVerseSelection: (ref) =>
+        set((s) => {
+          const has = s.selectedVerses.some((v) => sameRef(v, ref));
+          return {
+            selectedVerses: has
+              ? s.selectedVerses.filter((v) => !sameRef(v, ref))
+              : [...s.selectedVerses, ref],
+          };
+        }),
+
+      // Shift-click: select an inclusive range within the same book+chapter
+      // as the new ref, anchored at the most recent already-selected verse
+      // in that book+chapter. Verses already in the selection stay; new
+      // verses in the range are appended. If there is no anchor in this
+      // book+chapter, behaves like a plain add.
+      extendVerseSelection: (ref) =>
+        set((s) => {
+          const sameChapter = s.selectedVerses.filter(
+            (v) => v.book === ref.book && v.chapter === ref.chapter,
+          );
+          const anchor = sameChapter[sameChapter.length - 1]?.verseNum;
+          if (anchor == null) {
+            const exists = s.selectedVerses.some((v) => sameRef(v, ref));
+            return exists
+              ? s
+              : { selectedVerses: [...s.selectedVerses, ref] };
+          }
+          const lo = Math.min(anchor, ref.verseNum);
+          const hi = Math.max(anchor, ref.verseNum);
+          const additions: VerseRef[] = [];
+          for (let v = lo; v <= hi; v++) {
+            const r = { book: ref.book, chapter: ref.chapter, verseNum: v };
+            if (!s.selectedVerses.some((x) => sameRef(x, r))) {
+              additions.push(r);
+            }
+          }
+          return { selectedVerses: [...s.selectedVerses, ...additions] };
+        }),
+
+      clearVerseSelection: () => set({ selectedVerses: [] }),
       addTranslation: (trans) =>
         set((s) =>
           s.activeTranslations.includes(trans) || s.activeTranslations.length >= 3

@@ -181,21 +181,31 @@ impl Provider for AnthropicProvider {
     }
 
     fn build_body(&self, messages: &[ChatMessage], model: &str) -> String {
-        let msgs: Vec<_> = messages
-            .iter()
-            .map(|m| {
-                serde_json::json!({
+        // Anthropic's Messages API requires `system` at the top level, not as
+        // a role inside `messages`. Concatenate every system message into one
+        // string and put the rest in `messages`.
+        let mut system_parts: Vec<String> = Vec::new();
+        let mut conversation: Vec<serde_json::Value> = Vec::new();
+        for m in messages {
+            if m.role == "system" {
+                system_parts.push(m.content.clone());
+            } else {
+                conversation.push(serde_json::json!({
                     "role": m.role,
                     "content": m.content,
-                })
-            })
-            .collect();
-        serde_json::to_string(&serde_json::json!({
+                }));
+            }
+        }
+
+        let mut payload = serde_json::json!({
             "model": model,
-            "messages": msgs,
-            "max_tokens": 1024,
-        }))
-        .unwrap()
+            "messages": conversation,
+            "max_tokens": 4096,
+        });
+        if !system_parts.is_empty() {
+            payload["system"] = serde_json::Value::String(system_parts.join("\n\n"));
+        }
+        serde_json::to_string(&payload).unwrap()
     }
 
     fn parse_response(&self, body: &str) -> Result<String, AiError> {
@@ -269,19 +279,29 @@ impl Provider for GoogleProvider {
     }
 
     fn build_body(&self, messages: &[ChatMessage], _model: &str) -> String {
-        let contents: Vec<_> = messages
-            .iter()
-            .map(|m| {
-                serde_json::json!({
-                    "role": if m.role == "assistant" { "model" } else { "user" },
-                    "parts": [{ "text": m.content }]
-                })
-            })
-            .collect();
-        serde_json::to_string(&serde_json::json!({
-            "contents": contents,
-        }))
-        .unwrap()
+        // Gemini supports a top-level `systemInstruction` separate from the
+        // user/model conversation. Pull system messages out and put the rest
+        // in `contents` with `assistant` mapped to `model`.
+        let mut system_parts: Vec<String> = Vec::new();
+        let mut contents: Vec<serde_json::Value> = Vec::new();
+        for m in messages {
+            if m.role == "system" {
+                system_parts.push(m.content.clone());
+                continue;
+            }
+            contents.push(serde_json::json!({
+                "role": if m.role == "assistant" { "model" } else { "user" },
+                "parts": [{ "text": m.content }],
+            }));
+        }
+
+        let mut payload = serde_json::json!({ "contents": contents });
+        if !system_parts.is_empty() {
+            payload["systemInstruction"] = serde_json::json!({
+                "parts": [{ "text": system_parts.join("\n\n") }],
+            });
+        }
+        serde_json::to_string(&payload).unwrap()
     }
 
     fn parse_response(&self, body: &str) -> Result<String, AiError> {

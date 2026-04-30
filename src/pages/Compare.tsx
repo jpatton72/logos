@@ -737,6 +737,10 @@ export default function Compare() {
             <AiPanel
               verses={aiVerses}
               onClose={() => setShowAi(false)}
+              // Compare's AI context is the active row, not the global
+              // selectedVerses store. Setting `verse` to 0 makes activeRow
+              // undefined, which empties aiVerses on the next render.
+              onDeselectAll={() => setVerse(0)}
             />
           </div>
         )}

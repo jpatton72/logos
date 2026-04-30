@@ -415,10 +415,42 @@ interface VerseDisplayProps {
 }
 
 export function VerseDisplay({ group, originalVerses }: VerseDisplayProps) {
-  const { darkMode, fontSize, currentVerse, setVerse, addBookmark, removeBookmark, bookmarks } = useAppStore();
+  const {
+    darkMode,
+    fontSize,
+    currentBook,
+    currentChapter,
+    selectedVerses,
+    toggleVerseSelection,
+    extendVerseSelection,
+    addBookmark,
+    removeBookmark,
+    bookmarks,
+  } = useAppStore();
   const [bmHover, setBmHover] = useState(false);
   const [ketivQere, setKetivQere] = useState<Record<number, KetivQere[]>>({});
-  const isActive = currentVerse === group.verse_num;
+
+  const verseRef = {
+    book: currentBook.toLowerCase(),
+    chapter: currentChapter,
+    verseNum: group.verse_num,
+  };
+  const isActive = selectedVerses.some(
+    (v) =>
+      v.book === verseRef.book &&
+      v.chapter === verseRef.chapter &&
+      v.verseNum === verseRef.verseNum,
+  );
+
+  const handleVerseClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.shiftKey) {
+      extendVerseSelection(verseRef);
+    } else {
+      // Plain click and Ctrl/Cmd-click both toggle this verse in/out of
+      // the persistent selection.
+      toggleVerseSelection(verseRef);
+    }
+  };
   const primaryVerse = group.verses[0];
   const isBookmarked = bookmarks.some((b) => b.verse_id === primaryVerse?.id);
 
@@ -481,7 +513,7 @@ export function VerseDisplay({ group, originalVerses }: VerseDisplayProps) {
   return (
     <div
       id={`verse-${group.verses[0]?.book_abbreviation}-${group.chapter}-${group.verse_num}`}
-      onClick={() => setVerse(group.verse_num)}
+      onClick={handleVerseClick}
       onMouseEnter={() => setBmHover(true)}
       onMouseLeave={() => setBmHover(false)}
       style={{
