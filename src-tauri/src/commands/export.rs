@@ -70,26 +70,9 @@ pub fn export_notes_and_bookmarks(db: State<'_, Database>) -> Result<ExportData,
     Ok(ExportData {
         notes,
         bookmarks,
-        exported_at: chrono_lite_now(),
+        // Real ISO-8601 / RFC-3339 UTC timestamp from chrono. The
+        // previous hand-rolled formatter assumed every month was 30 days
+        // and ignored leap years, so it would happily emit "1970-02-30".
+        exported_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
     })
-}
-
-fn chrono_lite_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = duration.as_secs();
-    // Simple ISO 8601 format approximation
-    let days = secs / 86400;
-    let remaining = secs % 86400;
-    let hours = remaining / 3600;
-    let minutes = (remaining % 3600) / 60;
-    let seconds = remaining % 60;
-    // Approximate date calculation from epoch
-    let year = 1970 + (days / 365) as u64;
-    let day_of_year = days % 365;
-    let month = (day_of_year / 30).saturating_add(1).min(12);
-    let day = (day_of_year % 30).saturating_add(1);
-    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, month, day, hours, minutes, seconds)
 }

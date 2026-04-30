@@ -1,20 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { getStrongsGreek, getStrongsHebrew, getChapterOriginals, getBookIndex } from '../lib/tauri';
-import type { WordMapping, StrongsGreek, StrongsHebrew, Book } from '../lib/tauri';
+import { getStrongsGreek, getStrongsHebrew, getChapterOriginals } from '../lib/tauri';
+import type { WordMapping, StrongsGreek, StrongsHebrew, VerseWithWords } from '../lib/tauri';
+import {
+  parseGreekMorphology,
+  parseHebrewMorphology,
+  formatMorphologyParts,
+} from '../lib/morphology';
 
-// Extended types that include word_mappings (populated by getChapterOriginals)
-interface VerseWithWords {
-  id: number;
-  book_id: number;
-  book_abbreviation: string;
-  chapter: number;
-  verse_num: number;
-  translation_id: number;
-  text: string;
-  translation_abbreviation?: string;
-  word_mappings?: WordMapping[];
-}
+// VerseWithWords lives in src/lib/tauri.ts; imported above.
 
 // Extended Strongs entries that include the full lexicon fields from Rust
 interface StrongsGreekFull extends StrongsGreek {
@@ -25,264 +19,7 @@ interface StrongsHebrewFull extends StrongsHebrew {
   see?: string;
 }
 
-// ============================================================================
-// Morphology Parser
-// ============================================================================
-
-const GREEK_PART_OF_SPEECH: Record<string, string> = {
-  N: 'Noun',
-  V: 'Verb',
-  A: 'Adjective',
-  D: 'Adverb',
-  P: 'Preposition',
-  C: 'Conjunction',
-  X: 'Article',
-  I: 'Interjection',
-  R: 'Pronoun',
-  'S': 'Substantive (Noun)',
-};
-
-const GREEK_CASE: Record<string, string> = {
-  N: 'Nominative',
-  G: 'Genitive',
-  D: 'Dative',
-  A: 'Accusative',
-  V: 'Vocative',
-};
-
-const GREEK_NUMBER: Record<string, string> = {
-  S: 'Singular',
-  P: 'Plural',
-};
-
-const GREEK_GENDER: Record<string, string> = {
-  M: 'Masculine',
-  F: 'Feminine',
-  N: 'Neuter',
-};
-
-const GREEK_PERSON: Record<string, string> = {
-  '1': 'First Person',
-  '2': 'Second Person',
-  '3': 'Third Person',
-};
-
-const GREEK_TENSE: Record<string, string> = {
-  P: 'Present',
-  I: 'Imperfect',
-  F: 'Future',
-  A: 'Aorist',
-  E: 'Perfect',
-  L: 'Pluperfect',
-  R: 'Perfect (rare)',
-  X: 'No past tense',
-};
-
-const GREEK_VOICE: Record<string, string> = {
-  A: 'Active',
-  M: 'Middle',
-  P: 'Passive',
-  D: 'Middle/Passive (Deponent)',
-  O: 'Middle (Deponent)',
-  N: 'Passive (Deponent)',
-};
-
-const GREEK_MOOD: Record<string, string> = {
-  I: 'Indicative',
-  D: 'Imperative',
-  S: 'Subjunctive',
-  O: 'Optative',
-  N: 'Infinitive',
-  P: 'Participle',
-};
-
-const HEBREW_PART_OF_SPEECH: Record<string, string> = {
-  N: 'Noun',
-  V: 'Verb',
-  A: 'Adjective',
-  D: 'Adverb',
-  P: 'Preposition',
-  C: 'Conjunction',
-  R: 'Pronoun',
-  I: 'Interjection',
-};
-
-const HEBREW_CASE: Record<string, string> = {
-  N: 'Nominative',
-  G: 'Genitive',
-  D: 'Dative',
-  A: 'Accusative',
-  V: 'Vocative',
-};
-
-const HEBREW_NUMBER: Record<string, string> = {
-  S: 'Singular',
-  P: 'Plural',
-};
-
-const HEBREW_GENDER: Record<string, string> = {
-  M: 'Masculine',
-  F: 'Feminine',
-};
-
-const HEBREW_PERSON: Record<string, string> = {
-  '1': 'First Person',
-  '2': 'Second Person',
-  '3': 'Third Person',
-};
-
-interface MorphologyPart {
-  label: string;
-  value: string;
-}
-
-function parseGreekMorphology(tag: string): MorphologyPart[] {
-  if (!tag) return [];
-  const parts: MorphologyPart[] = [];
-  let rest = tag;
-
-  // First character = Part of Speech
-  const pos = rest.charAt(0);
-  if (GREEK_PART_OF_SPEECH[pos]) {
-    parts.push({ label: 'POS', value: GREEK_PART_OF_SPEECH[pos] });
-    rest = rest.slice(1);
-  }
-
-  // Then it's person/number/gender/case encoded in sequence
-  // Format: P/N/V + number + gender + case for nouns
-  // Format: T/V/M/P for verbs
-
-  let idx = 0;
-  const s = rest;
-
-  // Try to detect person (1, 2, 3)
-  if (idx < s.length && '123'.includes(s[idx])) {
-    const p = GREEK_PERSON[s[idx]];
-    if (p) parts.push({ label: 'Person', value: p });
-    idx++;
-  }
-
-  // Number (S/P)
-  if (idx < s.length && 'SP'.includes(s[idx])) {
-    const n = GREEK_NUMBER[s[idx]];
-    if (n) parts.push({ label: 'Number', value: n });
-    idx++;
-  }
-
-  // Gender (M/F/N) - only valid if not already used
-  if (idx < s.length && 'MFN'.includes(s[idx])) {
-    const g = GREEK_GENDER[s[idx]];
-    if (g) parts.push({ label: 'Gender', value: g });
-    idx++;
-  }
-
-  // Case (N/G/D/A/V)
-  if (idx < s.length && 'NGDAV'.includes(s[idx])) {
-    const c = GREEK_CASE[s[idx]];
-    if (c) parts.push({ label: 'Case', value: c });
-    idx++;
-  }
-
-  // If verb: Tense(Voice[Mood]) or Tense/Mood
-  // After the first code, we might have tense
-  if (parts.length === 1 || (parts[0]?.label === 'POS' && ['V', 'X'].includes(pos))) {
-    // Look for tense in remaining
-    const rem = s.slice(idx);
-    // Tense is usually first character of remaining
-    if (rem.length > 0) {
-      const t = GREEK_TENSE[rem[0]];
-      if (t) {
-        parts.push({ label: 'Tense', value: t });
-        idx++;
-      }
-    }
-    if (idx < rem.length) {
-      const v = GREEK_VOICE[rem[idx]];
-      if (v) {
-        parts.push({ label: 'Voice', value: v });
-        idx++;
-      }
-    }
-    if (idx < rem.length) {
-      const m = GREEK_MOOD[rem[idx]];
-      if (m) {
-        parts.push({ label: 'Mood', value: m });
-        idx++;
-      }
-    }
-  }
-
-  return parts;
-}
-
-function parseHebrewMorphology(tag: string): MorphologyPart[] {
-  if (!tag) return [];
-  const parts: MorphologyPart[] = [];
-  let rest = tag;
-
-  // First character = Part of Speech
-  const pos = rest.charAt(0);
-  if (HEBREW_PART_OF_SPEECH[pos]) {
-    parts.push({ label: 'POS', value: HEBREW_PART_OF_SPEECH[pos] });
-    rest = rest.slice(1);
-  }
-
-  const s = rest;
-  let idx = 0;
-
-  // Hebrew stem (binyan)
-  if (idx < s.length && 'QqNnDdPpHhOoTt'.includes(s[idx])) {
-    const stemMap: Record<string, string> = {
-      Q: 'Qal', q: 'Qal',
-      N: 'Niphal', n: 'Niphal',
-      D: 'Piel', d: 'Piel',
-      P: 'Pual', p: 'Pual',
-      H: 'Hiphil', h: 'Hiphil',
-      O: 'Hophal', o: 'Hophal',
-      T: 'Hithpael', t: 'Hithpael',
-    };
-    const stem = stemMap[s[idx]];
-    if (stem) {
-      parts.push({ label: 'Stem', value: stem });
-      idx++;
-    }
-  }
-
-  // Person (1, 2, 3)
-  if (idx < s.length && '123'.includes(s[idx])) {
-    const p = HEBREW_PERSON[s[idx]];
-    if (p) parts.push({ label: 'Person', value: p });
-    idx++;
-  }
-
-  // Number (S/P)
-  if (idx < s.length && 'SPsp'.includes(s[idx])) {
-    const n = HEBREW_NUMBER[s[idx].toUpperCase()];
-    if (n) parts.push({ label: 'Number', value: n });
-    idx++;
-  }
-
-  // Gender (M/F)
-  if (idx < s.length && 'MFmf'.includes(s[idx])) {
-    const g = HEBREW_GENDER[s[idx].toUpperCase()];
-    if (g) parts.push({ label: 'Gender', value: g });
-    idx++;
-  }
-
-  // Case (N/G/D/A/V)
-  if (idx < s.length && 'NGDAVngdav'.includes(s[idx])) {
-    const c = HEBREW_CASE[s[idx].toUpperCase()];
-    if (c) parts.push({ label: 'Case', value: c });
-    idx++;
-  }
-
-  return parts;
-}
-
-function formatMorphologyParts(parts: MorphologyPart[]): string {
-  return parts.map((p) => p.value).join(', ');
-}
-
+// Morphology parsers live in src/lib/morphology.ts.
 // Books are loaded from the DB at runtime so abbreviations match `books.abbreviation`.
 
 // ============================================================================
@@ -469,7 +206,7 @@ function WordDetail({ word, strongsEntry, darkMode, onClose }: WordDetailProps) 
 type Tab = 'search' | 'chapter';
 
 export default function Lexicon() {
-  const { darkMode, currentBook, currentChapter } = useAppStore();
+  const { darkMode, currentBook, currentChapter, books, ensureBooks } = useAppStore();
 
   // Tab state
   const [activeTab, setActiveTab] = useState<Tab>('search');
@@ -481,13 +218,12 @@ export default function Lexicon() {
   const [strongsError, setStrongsError] = useState('');
 
   // Chapter word list state
-  const [books, setBooks] = useState<Book[]>([]);
   const [chapterBook, setChapterBook] = useState(currentBook || 'john');
   const [chapterNum, setChapterNum] = useState(currentChapter || 1);
 
   useEffect(() => {
-    getBookIndex().then(setBooks).catch(() => setBooks([]));
-  }, []);
+    if (books.length === 0) ensureBooks().catch(() => {});
+  }, [books.length, ensureBooks]);
   const [chapterVerses, setChapterVerses] = useState<VerseWithWords[]>([]);
   const [chapterLoading, setChapterLoading] = useState(false);
   const [chapterError, setChapterError] = useState('');

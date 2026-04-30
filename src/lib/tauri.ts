@@ -110,6 +110,14 @@ export interface WordMapping {
   language: "hebrew" | "greek";
 }
 
+/** A Verse with its per-word original-language mappings attached.
+ *  Returned by `getChapterOriginals`. The `word_mappings` field is
+ *  optional because verses fetched via `getChapter` (English text)
+ *  don't carry it. */
+export interface VerseWithWords extends Verse {
+  word_mappings?: WordMapping[];
+}
+
 export interface SearchResult {
   verse_id: number;
   book_abbreviation: string;
@@ -143,6 +151,37 @@ export interface ReadingProgressEntry {
   book_id: number;
   chapter: number;
   last_read_at: string;
+}
+
+// Mirrors src-tauri/src/commands/export.rs::ExportedNote.
+export interface ExportedNote {
+  id: number;
+  title: string | null;
+  content: string;
+  tags: string[];
+  verse_ref: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Mirrors src-tauri/src/commands/export.rs::ExportedBookmark.
+export interface ExportedBookmark {
+  id: number;
+  label: string | null;
+  verse_ref: string;
+  verse_text: string;
+  created_at: string;
+}
+
+// Mirrors src-tauri/src/commands/export.rs::ExportData.
+export interface ExportData {
+  notes: ExportedNote[];
+  bookmarks: ExportedBookmark[];
+  exported_at: string;
+}
+
+export async function exportNotesAndBookmarks(): Promise<ExportData> {
+  return invoke<ExportData>('export_notes_and_bookmarks');
 }
 
 // ============================================================================
@@ -307,8 +346,8 @@ export async function getVerseWords(verseId: number): Promise<WordMapping[]> {
 // Original Language Commands
 // ============================================================================
 
-export async function getChapterOriginals(book: string, chapter: number): Promise<Verse[]> {
-  return invoke<Verse[]>("get_chapter_originals", { book, chapter });
+export async function getChapterOriginals(book: string, chapter: number): Promise<VerseWithWords[]> {
+  return invoke<VerseWithWords[]>("get_chapter_originals", { book, chapter });
 }
 
 export async function getKetivQere(

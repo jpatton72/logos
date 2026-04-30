@@ -12,6 +12,7 @@ struct AiChatInput {
 #[tauri::command]
 pub async fn ai_chat(
     db: State<'_, Database>,
+    http: State<'_, reqwest::Client>,
     messages_json: String,
     provider: String,
     model: String,
@@ -31,8 +32,9 @@ pub async fn ai_chat(
     let input: AiChatInput =
         serde_json::from_str(&messages_json).map_err(|e| format!("Invalid messages JSON: {}", e))?;
 
-    // Call the provider
-    let response = chat_with_provider(&provider, input.messages, &model, &api_key)
+    // Reuse the long-lived HTTP client from AppState — keeps the connection
+    // pool warm across consecutive AI requests.
+    let response = chat_with_provider(&http, &provider, input.messages, &model, &api_key)
         .await
         .map_err(|e| e.to_string())?;
 

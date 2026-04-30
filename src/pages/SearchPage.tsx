@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
-import { searchVerses, getChapter, getBookIndex } from '../api';
+import { searchVerses, getChapter } from '../api';
 import { SearchBar } from '../components/SearchBar';
 import { SearchResults } from '../components/SearchResults';
 import type { SearchResult, Book } from '../api';
@@ -240,7 +240,7 @@ function FilterBar({
 
 export function SearchPage() {
   const [searchParams] = useSearchParams();
-  const { darkMode, activeTranslations } = useAppStore();
+  const { darkMode, activeTranslations, books, ensureBooks } = useAppStore();
   const query = searchParams.get('q') || '';
 
   const [translation, setTranslation] = useState('');
@@ -252,11 +252,10 @@ export function SearchPage() {
   const [referenceResults, setReferenceResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [books, setBooks] = useState<Book[]>([]);
 
   useEffect(() => {
-    getBookIndex().then(setBooks).catch(() => setBooks([]));
-  }, []);
+    if (books.length === 0) ensureBooks().catch(() => {});
+  }, [books.length, ensureBooks]);
 
   const doSearch = useCallback(async () => {
     if (!query.trim()) {

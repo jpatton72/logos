@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { getChapter, getChapterOriginals, getBookIndex } from '../lib/tauri';
-import type { VerseGroup, Verse, Book } from '../lib/tauri';
+import { getChapter, getChapterOriginals } from '../lib/tauri';
+import type { VerseGroup, VerseWithWords } from '../lib/tauri';
 import { TranslationSelector } from './TranslationSelector';
 import { VerseDisplay } from './VerseDisplay';
 
@@ -13,19 +13,7 @@ interface ChapterViewProps {
   onOpenAi?: () => void;
 }
 
-// Extended Verse type that includes word_mappings
-interface VerseWithWords extends Verse {
-  word_mappings?: Array<{
-    id: number;
-    verse_id: number;
-    word_index: number;
-    strongs_id: string;
-    original_word: string;
-    lemma: string | null;
-    morphology: string | null;
-    language: "hebrew" | "greek";
-  }>;
-}
+// VerseWithWords lives in src/lib/tauri.ts; imported above.
 
 export function ChapterView({
   book,
@@ -34,15 +22,14 @@ export function ChapterView({
   onNextChapter,
   onOpenAi,
 }: ChapterViewProps) {
-  const { activeTranslations, darkMode } = useAppStore();
+  const { activeTranslations, darkMode, books, ensureBooks } = useAppStore();
   const [verses, setVerses] = useState<VerseGroup[]>([]);
   const [originalVerses, setOriginalVerses] = useState<VerseWithWords[]>([]);
   const [loading, setLoading] = useState(false);
-  const [books, setBooks] = useState<Book[]>([]);
 
   useEffect(() => {
-    getBookIndex().then(setBooks).catch(() => setBooks([]));
-  }, []);
+    if (books.length === 0) ensureBooks().catch(() => {});
+  }, [books.length, ensureBooks]);
 
   useEffect(() => {
     setLoading(true);

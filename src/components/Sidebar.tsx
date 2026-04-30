@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { getBookIndex } from '../api';
 import type { Book } from '../api';
 
 interface SidebarProps {
@@ -9,22 +8,25 @@ interface SidebarProps {
 }
 
 export function Sidebar({ onSelectBook, onSelectChapter }: SidebarProps) {
-  const { currentBook, darkMode, sidebarOpen } = useAppStore();
-  const [books, setBooks] = useState<Book[]>([]);
+  const { currentBook, darkMode, sidebarOpen, books, ensureBooks } = useAppStore();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ OT: false, NT: false, NC: true });
   const [filter, setFilter] = useState('');
+  const [fellBack, setFellBack] = useState<Book[] | null>(null);
 
   useEffect(() => {
-    getBookIndex().then(setBooks).catch(() => {
-      // Fallback: import static data if Tauri not available (dev mode)
-      import('../api/mockData').then((m) => setBooks(m.MOCK_BOOKS as Book[]));
+    if (books.length > 0) return;
+    ensureBooks().catch(() => {
+      // Fallback: import static data if Tauri isn't available (dev / browser preview).
+      import('../api/mockData').then((m) => setFellBack(m.MOCK_BOOKS as Book[]));
     });
-  }, []);
+  }, [books.length, ensureBooks]);
+
+  const effectiveBooks = books.length > 0 ? books : (fellBack ?? []);
 
   const q = filter.trim().toLowerCase();
   const filteredBooks = q
-    ? books.filter((b) => b.full_name.toLowerCase().includes(q) || b.abbreviation.toLowerCase().includes(q))
-    : books;
+    ? effectiveBooks.filter((b) => b.full_name.toLowerCase().includes(q) || b.abbreviation.toLowerCase().includes(q))
+    : effectiveBooks;
 
   const otBooks = filteredBooks.filter((b) => b.testament.toLowerCase() === 'ot');
   const ntBooks = filteredBooks.filter((b) => b.testament.toLowerCase() === 'nt');
@@ -160,7 +162,7 @@ export function Sidebar({ onSelectBook, onSelectChapter }: SidebarProps) {
         />
       </div>
 
-      {books.length > 0 ? (
+      {effectiveBooks.length > 0 ? (
         <>
           {renderSection('OT', otBooks)}
           <div style={{ height: '0.5rem' }} />

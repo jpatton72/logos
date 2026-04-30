@@ -9,7 +9,7 @@ import type {
   WordMapping,
   StrongsGreek,
   StrongsHebrew,
-  Verse,
+  VerseWithWords,
 } from '../lib/tauri';
 
 interface StrongsSidebarProps {
@@ -19,9 +19,7 @@ interface StrongsSidebarProps {
   onClose: () => void;
 }
 
-interface VerseWithWords extends Verse {
-  word_mappings?: WordMapping[];
-}
+// VerseWithWords lives in src/lib/tauri.ts; imported above.
 
 type Entry = (StrongsGreek | StrongsHebrew) & { language: 'hebrew' | 'greek' };
 

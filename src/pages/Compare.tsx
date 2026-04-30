@@ -2,10 +2,11 @@ import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '../store/useAppStore';
 import { ALL_TRANSLATIONS } from '../components/TranslationSelector';
-import { getChapterOriginals, getChapter, getBookIndex } from '../lib/tauri';
-import type { WordMapping, Book } from '../lib/tauri';
+import { getChapterOriginals, getChapter } from '../lib/tauri';
+import type { WordMapping } from '../lib/tauri';
 import { AiPanel } from '../components/AiPanel';
 import { StrongsSidebar } from '../components/StrongsSidebar';
+import { parseGreekMorphology, parseHebrewMorphology } from '../lib/morphology';
 
 const ORIGINAL_LANG_CODES = new Set(['wlc', 'sblgnt', 'oshb']);
 
@@ -94,121 +95,7 @@ function useCompareData(ref: ChapterRef, translations: string[]): useCompareData
   return { rows, loading, verseCount };
 }
 
-// ============================================================================
-// Morphology Parsing (reused from Lexicon.tsx)
-// ============================================================================
-
-interface MorphologyPart {
-  label: string;
-  value: string;
-}
-
-const GREEK_PART_OF_SPEECH: Record<string, string> = {
-  N: 'Noun', V: 'Verb', A: 'Adjective', D: 'Adverb', P: 'Preposition',
-  C: 'Conjunction', X: 'Article', I: 'Interjection', R: 'Pronoun', 'S': 'Substantive',
-};
-
-const GREEK_CASE: Record<string, string> = { N: 'Nom.', G: 'Gen.', D: 'Dat.', A: 'Acc.', V: 'Voc.' };
-const GREEK_NUMBER: Record<string, string> = { S: 'Sg.', P: 'Pl.' };
-const GREEK_GENDER: Record<string, string> = { M: 'Masc.', F: 'Fem.', N: 'Neut.' };
-const GREEK_PERSON: Record<string, string> = { '1': '1st', '2': '2nd', '3': '3rd' };
-const GREEK_TENSE: Record<string, string> = { P: 'Pres.', I: 'Imperf.', F: 'Fut.', A: 'Aor.', E: 'Perf.', L: 'Plupf.', R: 'Perf.', X: 'No tense' };
-const GREEK_VOICE: Record<string, string> = { A: 'Act.', M: 'Mid.', P: 'Pass.', D: 'Mid./Pass.', O: 'Mid.', N: 'Pass.' };
-const GREEK_MOOD: Record<string, string> = { I: 'Ind.', D: 'Imp.', S: 'Subj.', O: 'Opt.', N: 'Inf.', P: 'Ptc.' };
-
-const HEBREW_PART_OF_SPEECH: Record<string, string> = {
-  N: 'Noun', V: 'Verb', A: 'Adj.', D: 'Adv.', P: 'Prep.',
-  C: 'Conj.', R: 'Pron.', I: 'Interj.',
-};
-
-const HEBREW_NUMBER: Record<string, string> = { S: 'Sg.', P: 'Pl.' };
-const HEBREW_GENDER: Record<string, string> = { M: 'Masc.', F: 'Fem.' };
-const HEBREW_PERSON: Record<string, string> = { '1': '1st', '2': '2nd', '3': '3rd' };
-
-function parseGreekMorphology(tag: string): MorphologyPart[] {
-  if (!tag) return [];
-  const parts: MorphologyPart[] = [];
-  let rest = tag;
-  const pos = rest.charAt(0);
-  if (GREEK_PART_OF_SPEECH[pos]) {
-    parts.push({ label: 'POS', value: GREEK_PART_OF_SPEECH[pos] });
-    rest = rest.slice(1);
-  }
-  let idx = 0;
-  const s = rest;
-  if (idx < s.length && '123'.includes(s[idx])) {
-    const p = GREEK_PERSON[s[idx]];
-    if (p) { parts.push({ label: 'Pers.', value: p }); idx++; }
-  }
-  if (idx < s.length && 'SP'.includes(s[idx])) {
-    const n = GREEK_NUMBER[s[idx]];
-    if (n) { parts.push({ label: 'Num.', value: n }); idx++; }
-  }
-  if (idx < s.length && 'MFN'.includes(s[idx])) {
-    const g = GREEK_GENDER[s[idx]];
-    if (g) { parts.push({ label: 'Gen.', value: g }); idx++; }
-  }
-  if (idx < s.length && 'NGDAV'.includes(s[idx])) {
-    const c = GREEK_CASE[s[idx]];
-    if (c) { parts.push({ label: 'Case', value: c }); idx++; }
-  }
-  if (parts.length === 1 || (parts[0]?.label === 'POS' && ['V', 'X'].includes(pos))) {
-    const rem = s.slice(idx);
-    if (rem.length > 0) {
-      const t = GREEK_TENSE[rem[0]];
-      if (t) { parts.push({ label: 'Tense', value: t }); idx++; }
-    }
-    if (idx < rem.length) {
-      const v = GREEK_VOICE[rem[idx]];
-      if (v) { parts.push({ label: 'Voice', value: v }); idx++; }
-    }
-    if (idx < rem.length) {
-      const m = GREEK_MOOD[rem[idx]];
-      if (m) { parts.push({ label: 'Mood', value: m }); idx++; }
-    }
-  }
-  return parts;
-}
-
-function parseHebrewMorphology(tag: string): MorphologyPart[] {
-  if (!tag) return [];
-  const parts: MorphologyPart[] = [];
-  let rest = tag;
-  const pos = rest.charAt(0);
-  if (HEBREW_PART_OF_SPEECH[pos]) {
-    parts.push({ label: 'POS', value: HEBREW_PART_OF_SPEECH[pos] });
-    rest = rest.slice(1);
-  }
-  const s = rest;
-  let idx = 0;
-  if (idx < s.length && 'QqNnDdPpHhOoTt'.includes(s[idx])) {
-    const stemMap: Record<string, string> = {
-      Q: 'Qal', q: 'Qal', N: 'Niph.', n: 'Niph.',
-      D: 'Piel', d: 'Piel', P: 'Pual', p: 'Pual',
-      H: 'Hiph.', h: 'Hiph.', O: 'Hoph.', o: 'Hoph.',
-      T: 'Hith.', t: 'Hith.',
-    };
-    const stem = stemMap[s[idx]];
-    if (stem) { parts.push({ label: 'Stem', value: stem }); idx++; }
-  }
-  if (idx < s.length && '123'.includes(s[idx])) {
-    const p = HEBREW_PERSON[s[idx]];
-    if (p) { parts.push({ label: 'Pers.', value: p }); idx++; }
-  }
-  if (idx < s.length && 'SPsp'.includes(s[idx])) {
-    const n = HEBREW_NUMBER[s[idx].toUpperCase()];
-    if (n) { parts.push({ label: 'Num.', value: n }); idx++; }
-  }
-  if (idx < s.length && 'MFmf'.includes(s[idx])) {
-    const g = HEBREW_GENDER[s[idx].toUpperCase()];
-    if (g) { parts.push({ label: 'Gen.', value: g }); idx++; }
-  }
-  if (idx < s.length && 'NGDAVngdav'.includes(s[idx])) {
-    const c = GREEK_CASE[s[idx].toUpperCase()];
-    if (c) { parts.push({ label: 'Case', value: c }); idx++; }
-  }
-  return parts;
-}
+// Morphology parsers live in src/lib/morphology.ts.
 
 // ============================================================================
 // Original Language Row Component
@@ -344,10 +231,8 @@ function OriginalRow({ words, isHebrew }: OriginalRowProps) {
 }
 
 export default function Compare() {
-  const { darkMode, currentBook, currentChapter, setBook: setStoreBook, setChapter: setStoreChapter } = useAppStore();
+  const { darkMode, currentBook, currentChapter, setBook: setStoreBook, setChapter: setStoreChapter, books, ensureBooks } = useAppStore();
   const columnRefs = useRef<Map<number, HTMLDivElement>>(new Map());
-
-  const [books, setBooks] = useState<Book[]>([]);
   // Drive book/chapter directly from the global store so the sidebar and the
   // Compare page picker stay in sync (whichever one the user changes).
   const book = (currentBook || 'john').toLowerCase();
@@ -371,8 +256,8 @@ export default function Compare() {
   useEffect(() => { setStrongsClosed(false); }, [transKey]);
 
   useEffect(() => {
-    getBookIndex().then(setBooks).catch(() => setBooks([]));
-  }, []);
+    if (books.length === 0) ensureBooks().catch(() => {});
+  }, [books.length, ensureBooks]);
 
   // Reset highlighted verse whenever the user navigates to a new chapter/book.
   useEffect(() => {
@@ -390,10 +275,10 @@ export default function Compare() {
     }
 
     getChapterOriginals(book, chapter).then((verses) => {
-      const words: OriginalVerseWords[] = verses.map(v => ({
+      const words: OriginalVerseWords[] = verses.map((v) => ({
         verseNum: v.verse_num,
         translation: v.translation_abbreviation ?? '',
-        words: (v as any).word_mappings ?? [],
+        words: v.word_mappings ?? [],
       }));
       setOriginalWords(words);
     });

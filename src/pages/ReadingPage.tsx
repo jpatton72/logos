@@ -1,23 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { ChapterView } from '../components/ChapterView';
 import { useNavigate } from 'react-router-dom';
-import { getReadingProgress, updateReadingProgress, getBookIndex } from '../api';
-import type { Book } from '../api';
+import { getReadingProgress, updateReadingProgress } from '../api';
 
 interface ReadingPageProps {
   onOpenAi?: () => void;
 }
 
 export function ReadingPage({ onOpenAi }: ReadingPageProps) {
-  const { currentBook, currentChapter, setChapter, setBook, darkMode } = useAppStore();
+  const { currentBook, currentChapter, setChapter, setBook, darkMode, books, ensureBooks } = useAppStore();
   const navigate = useNavigate();
   const hasRestoredRef = useRef(false);
-  const [books, setBooks] = useState<Book[]>([]);
 
   useEffect(() => {
-    getBookIndex().then(setBooks).catch(() => setBooks([]));
-  }, []);
+    if (books.length === 0) ensureBooks().catch(() => {});
+  }, [books.length, ensureBooks]);
 
   // Restore last reading position on mount
   useEffect(() => {
@@ -26,10 +24,9 @@ export function ReadingPage({ onOpenAi }: ReadingPageProps) {
         const progress = await getReadingProgress();
         if (progress.length > 0) {
           hasRestoredRef.current = true;
-          // Use the most recently read entry
           const last = progress.sort((a, b) => new Date(b.last_read_at).getTime() - new Date(a.last_read_at).getTime())[0];
-          const books = await getBookIndex();
-          const book = books.find((b) => b.id === last.book_id);
+          const allBooks = await ensureBooks();
+          const book = allBooks.find((b) => b.id === last.book_id);
           if (book) {
             setBook(book.abbreviation);
             setChapter(last.chapter);
@@ -39,6 +36,7 @@ export function ReadingPage({ onOpenAi }: ReadingPageProps) {
         console.error('Failed to restore reading progress:', e);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally only on mount
   }, []);
 
   // Save reading progress on chapter change (skip initial restore)
@@ -46,8 +44,8 @@ export function ReadingPage({ onOpenAi }: ReadingPageProps) {
     if (!hasRestoredRef.current) return;
     (async () => {
       try {
-        const books = await getBookIndex();
-        const book = books.find((b) => b.abbreviation === currentBook);
+        const allBooks = await ensureBooks();
+        const book = allBooks.find((b) => b.abbreviation === currentBook);
         if (book) {
           await updateReadingProgress(book.id, currentChapter);
         }
@@ -55,7 +53,7 @@ export function ReadingPage({ onOpenAi }: ReadingPageProps) {
         console.error('Failed to save reading progress:', e);
       }
     })();
-  }, [currentBook, currentChapter]);
+  }, [currentBook, currentChapter, ensureBooks]);
 
   const CHAPTER_COUNTS: Record<string, number> = { gen: 50, exod: 40, lev: 27, num: 36, deut: 34, josh: 24, judg: 21, ruth: 4, '1sam': 31, '2sam': 24, '1kgs': 22, '2kgs': 25, '1chr': 29, '2chr': 36, ezra: 10, neh: 13, est: 10, job: 42, ps: 150, prov: 31, eccl: 12, song: 8, isa: 66, jer: 52, lam: 5, ezek: 48, dan: 12, hosea: 14, joel: 3, amos: 9, obad: 1, jonah: 4, mic: 7, nah: 3, hab: 3, zeph: 3, hag: 2, zech: 14, mal: 4, matt: 28, mark: 16, luke: 24, john: 21, acts: 28, rom: 16, '1cor': 16, '2cor': 13, gal: 6, eph: 6, phil: 4, col: 4, '1thess': 5, '2thess': 3, '1tim': 6, '2tim': 4, titus: 3, phlm: 1, heb: 13, jas: 5, '1pet': 5, '2pet': 3, '1john': 5, '2john': 1, '3john': 1, jude: 1, rev: 22, '1esd': 9, '2esd': 16, tob: 14, jdt: 16, esthg: 10, wis: 19, sir: 51, bar: 5, epjer: 1, prazar: 1, sus: 1, bel: 1, prman: 1, '1macc': 16, '2macc': 15 };
   const BOOK_ORDER = ['gen', 'exod', 'lev', 'num', 'deut', 'josh', 'judg', 'ruth', '1sam', '2sam', '1kgs', '2kgs', '1chr', '2chr', 'ezra', 'neh', 'est', 'job', 'ps', 'prov', 'eccl', 'song', 'isa', 'jer', 'lam', 'ezek', 'dan', 'hosea', 'joel', 'amos', 'obad', 'jonah', 'mic', 'nah', 'hab', 'zeph', 'hag', 'zech', 'mal', 'matt', 'mark', 'luke', 'john', 'acts', 'rom', '1cor', '2cor', 'gal', 'eph', 'phil', 'col', '1thess', '2thess', '1tim', '2tim', 'titus', 'phlm', 'heb', 'jas', '1pet', '2pet', '1john', '2john', '3john', 'jude', 'rev', '1esd', '2esd', 'tob', 'jdt', 'esthg', 'wis', 'sir', 'bar', 'epjer', 'prazar', 'sus', 'bel', 'prman', '1macc', '2macc'];

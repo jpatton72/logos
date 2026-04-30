@@ -19,6 +19,7 @@ pub use database::Database;
 
 pub struct AppState {
     pub db: Database,
+    pub http: reqwest::Client,
 }
 
 /// Resolve the app data directory. Returns ~/.local/share/logos on Unix.
@@ -89,7 +90,12 @@ fn init_app_state() -> Result<AppState, String> {
         e.to_string()
     })?;
 
-    Ok(AppState { db })
+    let http = ai::build_http_client().map_err(|e| {
+        error!("Failed to build HTTP client: {}", e);
+        e.to_string()
+    })?;
+
+    Ok(AppState { db, http })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -106,6 +112,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         // .plugin(tauri_plugin_updater::Builder::new().build())  // DISABLED: needs write access to target dir
         .manage(app_state.db)
+        .manage(app_state.http)
         .invoke_handler(tauri::generate_handler![
             get_verse,
             get_chapter,

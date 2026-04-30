@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Book } from '../lib/tauri';
+import { getBookIndex } from '../lib/tauri';
 
 // A canonical reference to a single verse. `book` is the lower-cased
 // abbreviation (e.g. "gen", "matt") to match the way `currentBook` is stored.
@@ -51,12 +52,18 @@ interface AppState {
   bookmarks: Bookmark[];
   notes: Note[];
   fontSize: number;
+  // Cached book index — populated once via ensureBooks(). Components can
+  // read `books` directly; if it's empty they should call ensureBooks().
+  // Doesn't need to be persisted: the data is static and ships with the
+  // bundled DB, so a single Tauri IPC call per app session is enough.
+  books: Book[];
   // Actions
   setBook: (book: string) => void;
   setChapter: (chapter: number) => void;
   toggleVerseSelection: (ref: VerseRef) => void;
   extendVerseSelection: (ref: VerseRef) => void;
   clearVerseSelection: () => void;
+  ensureBooks: () => Promise<Book[]>;
   addTranslation: (trans: string) => void;
   removeTranslation: (trans: string) => void;
   setActiveTranslations: (translations: string[]) => void;
@@ -71,9 +78,13 @@ interface AppState {
   setFontSize: (size: number) => void;
 }
 
+// Module-level singleton for an in-flight ensureBooks() call. Lives outside
+// the store so it doesn't get serialized/persisted.
+let _booksPromise: Promise<Book[]> | null = null;
+
 export const useAppStore = create<AppState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       currentBook: 'gen',
       currentChapter: 1,
       selectedVerses: [],
@@ -83,6 +94,7 @@ export const useAppStore = create<AppState>()(
       bookmarks: [],
       notes: [],
       fontSize: 18,
+      books: [],
 
       // Navigation does NOT clear the verse selection — the whole point of
       // the persistent selection is to let the user gather verses from
@@ -135,6 +147,26 @@ export const useAppStore = create<AppState>()(
         }),
 
       clearVerseSelection: () => set({ selectedVerses: [] }),
+
+      // Returns the cached list if we already have it; otherwise fetches
+      // once and caches. Multiple concurrent callers share the same
+      // in-flight Promise via _booksPromise below so we don't fan out
+      // duplicate IPC calls during initial mount.
+      ensureBooks: async (): Promise<Book[]> => {
+        const cached = get().books;
+        if (cached.length > 0) return cached;
+        if (_booksPromise) return _booksPromise;
+        _booksPromise = (async () => {
+          try {
+            const books = await getBookIndex();
+            set({ books });
+            return books;
+          } finally {
+            _booksPromise = null;
+          }
+        })();
+        return _booksPromise;
+      },
       addTranslation: (trans) =>
         set((s) =>
           s.activeTranslations.includes(trans) || s.activeTranslations.length >= 3
