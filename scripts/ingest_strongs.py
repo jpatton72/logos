@@ -20,14 +20,16 @@ from pathlib import Path
 
 
 def get_default_db_path() -> Path:
+    """Mirror src-tauri/src/lib.rs::get_app_data_dir()."""
     system = platform.system()
     if system == "Windows":
-        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-        return base / "Logos Bible" / "logos.db"
-    elif system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "Logos" / "logos.db"
-    else:
-        return Path.home() / ".local" / "share" / "logos" / "logos.db"
+        appdata = os.environ.get("APPDATA")
+        if not appdata:
+            raise SystemExit("APPDATA is not set; pass --db-path explicitly.")
+        return Path(appdata) / "logos" / "Logos" / "data" / "logos.db"
+    if system == "Darwin":
+        return Path.home() / "Library" / "Application Support" / "logos" / "Logos" / "data" / "logos.db"
+    return Path.home() / ".local" / "share" / "logos" / "Logos" / "data" / "logos.db"
 
 
 def ensure_parent_dir(path: Path) -> None:

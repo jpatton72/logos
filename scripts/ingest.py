@@ -5,10 +5,10 @@ Logos Bible Data Ingestion Script
 Downloads and ingests Bible text data into the Logos SQLite database.
 Run with: python3 scripts/ingest.py [--db-path PATH] [--sample] [--kjv-only] [--skip-greek] [--skip-hebrew]
 
-Default database paths:
-  - Linux:   ~/.local/share/logos/logos.db
-  - macOS:   ~/Library/Application Support/Logos/logos.db
-  - Windows: %LOCALAPPDATA%/Logos Bible/logos.db
+Default database paths (mirrors src-tauri/src/lib.rs::get_app_data_dir):
+  - Linux:   ~/.local/share/logos/Logos/data/logos.db
+  - macOS:   ~/Library/Application Support/logos/Logos/data/logos.db
+  - Windows: %APPDATA%/logos/Logos/data/logos.db
 """
 
 import sqlite3
@@ -153,14 +153,16 @@ SEFARIA_BOOK_MAP = {
 
 
 def get_default_db_path() -> Path:
+    """Mirror src-tauri/src/lib.rs::get_app_data_dir()."""
     system = platform.system()
     if system == "Windows":
-        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-        return base / "Logos Bible" / "logos.db"
-    elif system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "Logos" / "logos.db"
-    else:
-        return Path.home() / ".local" / "share" / "logos" / "logos.db"
+        appdata = os.environ.get("APPDATA")
+        if not appdata:
+            raise SystemExit("APPDATA is not set; pass --db-path explicitly.")
+        return Path(appdata) / "logos" / "Logos" / "data" / "logos.db"
+    if system == "Darwin":
+        return Path.home() / "Library" / "Application Support" / "logos" / "Logos" / "data" / "logos.db"
+    return Path.home() / ".local" / "share" / "logos" / "Logos" / "data" / "logos.db"
 
 
 def fetch_url(url: str, timeout: int = 30) -> bytes | None:
@@ -210,21 +212,25 @@ def ensure_db_tables(conn: sqlite3.Connection) -> None:
             UNIQUE(book_id, chapter, verse_num, translation_id)
         )
     """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_verses_ref ON verses(book_id, chapter, verse_num)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_verses_translation ON verses(translation_id)")
 
-    try:
-        conn.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS verses_fts USING fts5(
-                verse_id UNINDEXED,
-                book_id,
-                chapter,
-                verse_num,
-                text,
-                translation_id,
-                tokenize='remov...tics 1'
-            )
-        """)
-    except sqlite3.OperationalError:
-        pass  # Already exists
+    # FTS5 virtual table for full-text verse search.
+    # `IF NOT EXISTS` already handles the rerun case, so we don't need
+    # (and shouldn't have) a try/except — silently swallowing
+    # OperationalError here once masked a mangled tokenize string and let
+    # downstream scripts fail with "no such table: verses_fts".
+    conn.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS verses_fts USING fts5(
+            verse_id UNINDEXED,
+            book_id,
+            chapter,
+            verse_num,
+            text,
+            translation_id,
+            tokenize='unicode61 remove_diacritics 1'
+        )
+    """)
 
     # ketiv_qere table: populated by ingest_wlc from Sefaria Masorah markup
     conn.execute("""
@@ -238,13 +244,35 @@ def ensure_db_tables(conn: sqlite3.Connection) -> None:
             UNIQUE(book_id, chapter, verse_num, ketiv)
         )
     """)
-    try:
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_ketiv_qere_ref
-            ON ketiv_qere(book_id, chapter, verse_num)
-        """)
-    except sqlite3.OperationalError:
-        pass
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_ketiv_qere_ref
+        ON ketiv_qere(book_id, chapter, verse_num)
+    """)
+
+    # strongs_greek + strongs_hebrew: populated by ingest_strongs.py.
+    # We declare them here so `ingest.py --schema-only` produces a complete
+    # schema that downstream tools (rebuild_database.py's has_base_text(),
+    # the Tauri app's queries, etc.) can rely on without first running
+    # ingest_strongs.py.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS strongs_greek (
+            id TEXT PRIMARY KEY,
+            word TEXT NOT NULL,
+            transliteration TEXT NOT NULL,
+            definition TEXT NOT NULL,
+            pronunciation TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS strongs_hebrew (
+            id TEXT PRIMARY KEY,
+            word TEXT NOT NULL,
+            ketiv_qere TEXT,
+            transliteration TEXT NOT NULL,
+            definition TEXT NOT NULL,
+            pronunciation TEXT
+        )
+    """)
 
     # word_mappings: populated by ingest_word_mappings.py from MorphGNT + Strong's
     conn.execute("""
@@ -260,26 +288,56 @@ def ensure_db_tables(conn: sqlite3.Connection) -> None:
             UNIQUE(verse_id, word_index)
         )
     """)
-    try:
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_word_mappings_verse ON word_mappings(verse_id)")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_word_mappings_strongs ON word_mappings(strongs_id)")
-    except sqlite3.OperationalError:
-        pass
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_word_mappings_verse ON word_mappings(verse_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_word_mappings_strongs ON word_mappings(strongs_id)")
 
     # terms_fts: populated by ingest_word_mappings.py from Greek/Hebrew verse text
-    try:
-        conn.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS terms_fts USING fts5(
-                term,
-                verse_count,
-                translation_id
-            )
-        """)
-    except sqlite3.OperationalError:
-        pass
+    conn.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS terms_fts USING fts5(
+            term,
+            verse_count,
+            translation_id
+        )
+    """)
+
+    # User-data tables — created by the Rust migrations on app launch, but
+    # we declare them here so a Python-only build produces a schema that's
+    # 1:1 with the running app and the user's notes/bookmarks survive even
+    # if they kick off a rebuild_database.py before opening the app.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS bookmarks (
+            id INTEGER PRIMARY KEY,
+            verse_id INTEGER NOT NULL REFERENCES verses(id),
+            label TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(verse_id)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS notes (
+            id INTEGER PRIMARY KEY,
+            verse_id INTEGER REFERENCES verses(id),
+            title TEXT,
+            content TEXT NOT NULL,
+            tags TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_verse ON notes(verse_id)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_preferences (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS reading_progress (
+            book_id INTEGER PRIMARY KEY REFERENCES books(id),
+            chapter INTEGER NOT NULL DEFAULT 1,
+            last_read_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
 
     conn.commit()
     print("Database tables verified.")
@@ -636,7 +694,7 @@ def rebuild_fts(conn: sqlite3.Connection) -> None:
 def main():
     parser = argparse.ArgumentParser(description="Logos Bible Data Ingestion")
     parser.add_argument("--db-path", type=Path, default=None,
-                        help="Path to logos.db (default: ~/.local/share/logos/logos.db)")
+                        help="Path to logos.db (default: platform-specific app data dir)")
     parser.add_argument("--sample", action="store_true",
                         help="Insert sample Genesis 1 data only (for testing)")
     parser.add_argument("--kjv-only", action="store_true",
@@ -645,6 +703,10 @@ def main():
                         help="Skip Greek New Testament ingestion")
     parser.add_argument("--skip-hebrew", action="store_true",
                         help="Skip Hebrew Old Testament ingestion (default)")
+    parser.add_argument("--schema-only", action="store_true",
+                        help="Create/upgrade the schema and exit without ingesting data. "
+                             "Use this to repair a partially-populated database (e.g. one "
+                             "created before a schema bug fix).")
     args = parser.parse_args()
 
     db_path = args.db_path or get_default_db_path()
@@ -653,6 +715,12 @@ def main():
     print(f"Connecting to {db_path}...")
     conn = sqlite3.connect(str(db_path))
     ensure_db_tables(conn)
+
+    if args.schema_only:
+        conn.commit()
+        conn.close()
+        print("Schema ensured. Exiting (--schema-only).")
+        return
 
     print("\n--- Inserting books ---")
     book_ids = insert_books(conn)

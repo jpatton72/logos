@@ -10,10 +10,10 @@ What it does:
      (the MorphGNT data provides original_word, lemma, morphology; this fills in the Strong's link)
   2. Populates terms_fts from Greek and Hebrew verse text for term-frequency browsing
 
-Default database paths:
-  - Linux:   ~/.local/share/logos/logos.db
-  - macOS:   ~/Library/Application Support/Logos/logos.db
-  - Windows: %LOCALAPPDATA%/Logos Bible/logos.db
+Default database paths (mirrors src-tauri/src/lib.rs::get_app_data_dir):
+  - Linux:   ~/.local/share/logos/Logos/data/logos.db
+  - macOS:   ~/Library/Application Support/logos/Logos/data/logos.db
+  - Windows: %APPDATA%/logos/Logos/data/logos.db
 """
 
 import sqlite3
@@ -25,14 +25,16 @@ from pathlib import Path
 
 
 def get_default_db_path() -> Path:
+    """Mirror src-tauri/src/lib.rs::get_app_data_dir()."""
     system = platform.system()
     if system == "Windows":
-        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-        return base / "Logos Bible" / "logos.db"
-    elif system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "Logos" / "logos.db"
-    else:
-        return Path.home() / ".local" / "share" / "logos" / "logos.db"
+        appdata = os.environ.get("APPDATA")
+        if not appdata:
+            raise SystemExit("APPDATA is not set; pass --db-path explicitly.")
+        return Path(appdata) / "logos" / "Logos" / "data" / "logos.db"
+    if system == "Darwin":
+        return Path.home() / "Library" / "Application Support" / "logos" / "Logos" / "data" / "logos.db"
+    return Path.home() / ".local" / "share" / "logos" / "Logos" / "data" / "logos.db"
 
 
 def tokenise(text: str) -> list[str]:

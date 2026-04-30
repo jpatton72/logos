@@ -65,13 +65,22 @@ def run(*cmd: str) -> None:
 
 
 def has_base_text(db_path: Path) -> bool:
+    """True if the DB looks like it already has the bulk imports done.
+
+    Tolerates missing tables (returns False) so this function can be called
+    against a freshly schema-created DB or one that was prepared by an
+    older script version.
+    """
     conn = sqlite3.connect(db_path)
     try:
-        n_verses = conn.execute("SELECT COUNT(*) FROM verses").fetchone()[0]
-        n_books = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
-        n_strongs = conn.execute(
-            "SELECT (SELECT COUNT(*) FROM strongs_greek) + (SELECT COUNT(*) FROM strongs_hebrew)"
-        ).fetchone()[0]
+        try:
+            n_verses = conn.execute("SELECT COUNT(*) FROM verses").fetchone()[0]
+            n_books = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
+            n_strongs = conn.execute(
+                "SELECT (SELECT COUNT(*) FROM strongs_greek) + (SELECT COUNT(*) FROM strongs_hebrew)"
+            ).fetchone()[0]
+        except sqlite3.OperationalError:
+            return False
     finally:
         conn.close()
     return n_verses > 50_000 and n_books >= 66 and n_strongs > 10_000
@@ -90,6 +99,11 @@ def main() -> int:
 
     print(f"Target DB: {db_path}")
     py = sys.executable
+
+    # Step 0: ensure the schema exists / is up to date. Idempotent and cheap;
+    # also repairs DBs created by older versions of the scripts that didn't
+    # successfully create every required table (e.g. verses_fts).
+    run(py, str(SCRIPTS / "ingest.py"), "--db-path", str(db_path), "--schema-only")
 
     # Step 1+2: base text + Strong's. Skip if DB looks already populated.
     if args.skip_base:
