@@ -18,6 +18,9 @@ Strong's Greek table schema:
 import sqlite3, re, urllib.request, json, sys, os, platform, argparse
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _user_check import add_allow_root_flag, assert_not_root
+
 
 def get_default_db_path() -> Path:
     """Mirror src-tauri/src/lib.rs::get_app_data_dir()."""
@@ -161,7 +164,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest Strong's Hebrew and Greek lexicons into logos.db")
     parser.add_argument("--db-path", type=Path, default=None,
                         help="Path to logos.db (default: platform-specific app data dir)")
+    add_allow_root_flag(parser)
     args = parser.parse_args()
+    assert_not_root(args.allow_root, script_name="ingest_strongs.py")
 
     db_path = args.db_path or get_default_db_path()
     ensure_parent_dir(db_path)

@@ -17,6 +17,9 @@ import sys
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _user_check import add_allow_root_flag, assert_not_root
+
 
 STRICT_TESTAMENT_CHECK = "testament IN ('ot', 'nt')"
 
@@ -251,7 +254,9 @@ def main() -> int:
         "--download-url",
         help="If --json doesn't exist locally, download it from this URL.",
     )
+    add_allow_root_flag(parser)
     args = parser.parse_args()
+    assert_not_root(args.allow_root, script_name="ingest_apocrypha.py")
     db_path = Path(args.db_path) if args.db_path else default_db_path()
     ingest(db_path, Path(args.json), args.translation, args.download_url)
     return 0

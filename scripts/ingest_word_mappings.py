@@ -21,7 +21,11 @@ import re
 import argparse
 import os
 import platform
+import sys
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _user_check import add_allow_root_flag, assert_not_root
 
 
 def get_default_db_path() -> Path:
@@ -152,7 +156,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Populate word_mappings Strong's IDs and terms_fts")
     parser.add_argument("--db-path", type=Path, default=None,
                         help="Path to logos.db (default: platform-specific app data dir)")
+    add_allow_root_flag(parser)
     args = parser.parse_args()
+    assert_not_root(args.allow_root, script_name="ingest_word_mappings.py")
 
     db_path = args.db_path or get_default_db_path()
     if not db_path.exists():

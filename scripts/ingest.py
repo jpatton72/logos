@@ -22,6 +22,11 @@ import sys
 import platform
 from pathlib import Path
 
+# Allow running this file directly even though the helper module name starts
+# with an underscore (i.e. is treated as a sibling, not a package).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _user_check import add_allow_root_flag, assert_not_root
+
 # --- KJV: farskipper/kjv JSON ---
 KJV_JSON_URL = "https://raw.githubusercontent.com/farskipper/kjv/master/json/verses-1769.json"
 
@@ -707,7 +712,9 @@ def main():
                         help="Create/upgrade the schema and exit without ingesting data. "
                              "Use this to repair a partially-populated database (e.g. one "
                              "created before a schema bug fix).")
+    add_allow_root_flag(parser)
     args = parser.parse_args()
+    assert_not_root(args.allow_root, script_name="ingest.py")
 
     db_path = args.db_path or get_default_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)

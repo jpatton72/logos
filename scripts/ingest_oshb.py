@@ -25,6 +25,9 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _user_check import add_allow_root_flag, assert_not_root
+
 OSHB_BOOKS = [
     "Gen", "Exod", "Lev", "Num", "Deut", "Josh", "Judg", "Ruth",
     "1Sam", "2Sam", "1Kgs", "2Kgs", "1Chr", "2Chr", "Ezra", "Neh",
@@ -173,7 +176,9 @@ def main() -> int:
     parser.add_argument("--translation", default="wlc", help="Hebrew translation abbr (default: wlc).")
     parser.add_argument("--wipe", action="store_true", help="Delete existing Hebrew word_mappings first.")
     parser.add_argument("--no-download", action="store_true", help="Skip download even if files are missing.")
+    add_allow_root_flag(parser)
     args = parser.parse_args()
+    assert_not_root(args.allow_root, script_name="ingest_oshb.py")
 
     db_path = Path(args.db_path) if args.db_path else default_db_path()
     if not db_path.exists():

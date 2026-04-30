@@ -27,6 +27,9 @@ import sqlite3
 import sys
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _user_check import add_allow_root_flag, assert_not_root
+
 # MorphGNT BCV book number -> our DB book abbreviation (case-insensitive).
 MORPHGNT_BOOKS: dict[str, str] = {
     "01": "Matt", "02": "Mark", "03": "Luke", "04": "John", "05": "Acts",
@@ -185,7 +188,9 @@ def main() -> int:
         action="store_true",
         help="Delete every existing Greek word_mappings row before inserting.",
     )
+    add_allow_root_flag(parser)
     args = parser.parse_args()
+    assert_not_root(args.allow_root, script_name="ingest_morphgnt.py")
 
     db_path = Path(args.db_path) if args.db_path else default_db_path()
     if not db_path.exists():

@@ -17,6 +17,9 @@ import sys
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _user_check import add_allow_root_flag, assert_not_root
+
 
 def default_db_path() -> Path:
     """Mirror src-tauri/src/lib.rs::get_app_data_dir()."""
@@ -187,7 +190,9 @@ def main() -> int:
     )
     parser.add_argument("--db-path", help="Path to logos.db (default: app data dir).")
     parser.add_argument("--optimize", action="store_true", help="Run FTS optimize at the end.")
+    add_allow_root_flag(parser)
     args = parser.parse_args()
+    assert_not_root(args.allow_root, script_name="ingest_json_translation.py")
 
     db_path = Path(args.db_path) if args.db_path else default_db_path()
     json_path = Path(args.json)
