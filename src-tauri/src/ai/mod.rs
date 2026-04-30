@@ -48,4 +48,7 @@ pub enum AiError {
 
     #[error("No content in response")]
     EmptyResponse,
+
+    #[error("Invalid configuration: {0}")]
+    InvalidConfig(String),
 }

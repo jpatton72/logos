@@ -160,7 +160,7 @@ def ingest_hebrew(conn: sqlite3.Connection) -> int:
     return len(rows)
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description="Ingest Strong's Hebrew and Greek lexicons into logos.db")
     parser.add_argument("--db-path", type=Path, default=None,
                         help="Path to logos.db (default: platform-specific app data dir)")
@@ -185,7 +185,8 @@ def main() -> None:
     print(f"  Verifying: {cur.fetchone()[0]} rows in strongs_hebrew")
 
     print(f"\nDone. Greek: {greek_count}, Hebrew: {hebrew_count}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

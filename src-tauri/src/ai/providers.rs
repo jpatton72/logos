@@ -28,18 +28,27 @@ pub trait Provider: Send + Sync {
     }
 
     /// Build provider-specific request headers given the API key.
-    fn headers(&self, api_key: &str) -> HeaderMap {
+    ///
+    /// Returns InvalidConfig if the API key contains characters that aren't
+    /// valid in an HTTP header value (e.g. control characters or non-ASCII)
+    /// — previously this was an `.unwrap()` that crashed the backend
+    /// process when the user pasted a mangled key.
+    fn headers(&self, api_key: &str) -> Result<HeaderMap, AiError> {
         let mut headers = HeaderMap::new();
         let (name, prefix) = self.api_key_header();
-        let header_name = HeaderName::from_str(name).unwrap();
-        let header_value =
-            HeaderValue::from_str(&format!("{}{}", prefix, api_key)).unwrap();
+        let header_name = HeaderName::from_str(name)
+            .map_err(|e| AiError::InvalidConfig(format!("invalid header name {name:?}: {e}")))?;
+        let header_value = HeaderValue::from_str(&format!("{}{}", prefix, api_key))
+            .map_err(|_| AiError::InvalidConfig(
+                "API key contains characters that aren't valid in an HTTP header. \
+                 Re-copy your key from the provider's dashboard.".to_string(),
+            ))?;
         headers.insert(header_name, header_value);
         headers.insert(
             HeaderName::from_static("content-type"),
             HeaderValue::from_static("application/json"),
         );
-        headers
+        Ok(headers)
     }
 
     /// Serialize the request body in provider-specific format.
@@ -59,7 +68,7 @@ pub trait Provider: Send + Sync {
         let body = self.build_body(messages, model);
         let response = client
             .post(self.endpoint())
-            .headers(self.headers(api_key))
+            .headers(self.headers(api_key)?)
             .body(body)
             .send()
             .await
@@ -163,21 +172,24 @@ impl Provider for AnthropicProvider {
         ("x-api-key", "")
     }
 
-    fn headers(&self, api_key: &str) -> HeaderMap {
+    fn headers(&self, api_key: &str) -> Result<HeaderMap, AiError> {
         let mut headers = HeaderMap::new();
+        let api_key_value = HeaderValue::from_str(api_key).map_err(|_| {
+            AiError::InvalidConfig(
+                "Anthropic API key contains characters that aren't valid in an HTTP header. \
+                 Re-copy your key from console.anthropic.com.".to_string(),
+            )
+        })?;
+        headers.insert(HeaderName::from_static("x-api-key"), api_key_value);
         headers.insert(
-            HeaderName::from_str("x-api-key").unwrap(),
-            HeaderValue::from_str(api_key).unwrap(),
-        );
-        headers.insert(
-            HeaderName::from_str("anthropic-version").unwrap(),
+            HeaderName::from_static("anthropic-version"),
             HeaderValue::from_static("2023-06-01"),
         );
         headers.insert(
             HeaderName::from_static("content-type"),
             HeaderValue::from_static("application/json"),
         );
-        headers
+        Ok(headers)
     }
 
     fn build_body(&self, messages: &[ChatMessage], model: &str) -> String {
@@ -248,9 +260,15 @@ impl Provider for GoogleProvider {
         api_key: &str,
     ) -> Result<AiResponse, AiError> {
         let body = self.build_body(messages, model);
-        let url = format!("{}/{model}:generateContent?key={}", self.endpoint(), api_key);
+        // Build the URL without the api_key, then attach it as a query
+        // parameter so reqwest URL-encodes it. Concatenating it into the
+        // format string (the previous behaviour) corrupted the URL if the
+        // key contained any URL-reserved characters.
+        let url = format!("{}/{model}:generateContent", self.endpoint());
         let response = client
             .post(&url)
+            .query(&[("key", api_key)])
+            .header("content-type", "application/json")
             .body(body)
             .send()
             .await
@@ -397,13 +415,13 @@ impl Provider for OllamaProvider {
         ("", "")
     }
 
-    fn headers(&self, _api_key: &str) -> HeaderMap {
+    fn headers(&self, _api_key: &str) -> Result<HeaderMap, AiError> {
         let mut headers = HeaderMap::new();
         headers.insert(
             HeaderName::from_static("content-type"),
             HeaderValue::from_static("application/json"),
         );
-        headers
+        Ok(headers)
     }
 
     fn build_body(&self, messages: &[ChatMessage], model: &str) -> String {
@@ -447,24 +465,30 @@ impl Provider for OllamaProvider {
 // Dispatcher
 // ============================================================================
 
+/// Build a `reqwest::Client` configured for AI provider calls. Held in
+/// `AppState` and reused across requests so we keep the connection pool
+/// (and TLS session resumption) warm across consecutive AI prompts.
+pub fn build_http_client() -> Result<reqwest::Client, reqwest::Error> {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+}
+
 /// Calls the appropriate provider based on the `provider` string (async).
 pub async fn chat_with_provider(
+    client: &reqwest::Client,
     provider: &str,
     messages: Vec<ChatMessage>,
     model: &str,
     api_key: &str,
 ) -> Result<AiResponse, AiError> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
-        .map_err(AiError::HttpError)?;
 
     match provider {
-        "google" => GoogleProvider.chat(&client, &messages, model, api_key).await,
-        "openai" => OpenAiProvider.chat(&client, &messages, model, api_key).await,
-        "anthropic" => AnthropicProvider.chat(&client, &messages, model, api_key).await,
-        "groq" => GroqProvider.chat(&client, &messages, model, api_key).await,
-        "ollama" => OllamaProvider.chat(&client, &messages, model, api_key).await,
+        "google" => GoogleProvider.chat(client, &messages, model, api_key).await,
+        "openai" => OpenAiProvider.chat(client, &messages, model, api_key).await,
+        "anthropic" => AnthropicProvider.chat(client, &messages, model, api_key).await,
+        "groq" => GroqProvider.chat(client, &messages, model, api_key).await,
+        "ollama" => OllamaProvider.chat(client, &messages, model, api_key).await,
         _ => Err(AiError::UnsupportedProvider(provider.to_string())),
     }
 }

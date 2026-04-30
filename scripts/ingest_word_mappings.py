@@ -96,16 +96,18 @@ def populate_terms_fts(conn: sqlite3.Connection) -> int:
     """
     print("Populating terms_fts...")
 
-    # Clear existing
-    conn.execute("DELETE FROM terms_fts")
-    conn.commit()
-
     translations = conn.execute("""
         SELECT id, language FROM translations WHERE language IN ('greek', 'hebrew')
     """).fetchall()
 
     total_terms = 0
     for trans_id, language in translations:
+        # Wipe just this translation's prior rows. Wiping the whole
+        # terms_fts table up front means a script that fails partway
+        # through destroys the index for every other translation; this
+        # scoped delete preserves them.
+        conn.execute("DELETE FROM terms_fts WHERE translation_id = ?", (trans_id,))
+
         # Collect all terms per verse (deduplicated within verse)
         conn.execute("CREATE TEMP TABLE IF NOT EXISTS _verse_terms (term TEXT, verse_id INTEGER)")
         conn.execute("DELETE FROM _verse_terms")
@@ -152,7 +154,7 @@ def populate_terms_fts(conn: sqlite3.Connection) -> int:
     return total_terms
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description="Populate word_mappings Strong's IDs and terms_fts")
     parser.add_argument("--db-path", type=Path, default=None,
                         help="Path to logos.db (default: platform-specific app data dir)")
@@ -164,7 +166,7 @@ def main() -> None:
     if not db_path.exists():
         print(f"ERROR: Database not found at {db_path}")
         print("  Run ingest.py and ingest_strongs.py first.")
-        return
+        return 1
 
     print(f"Using database: {db_path}")
     conn = sqlite3.connect(db_path)
@@ -179,7 +181,7 @@ def main() -> None:
     if missing:
         print(f"ERROR: Missing tables: {', '.join(sorted(missing))}")
         print("  Run ingest.py and ingest_strongs.py first.")
-        return
+        return 1
 
     # Sanity checks
     wm_count = conn.execute("SELECT COUNT(*) FROM word_mappings").fetchone()[0]
@@ -216,7 +218,8 @@ def main() -> None:
     print("Done!")
 
     conn.close()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

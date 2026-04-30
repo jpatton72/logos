@@ -696,7 +696,7 @@ def rebuild_fts(conn: sqlite3.Connection) -> None:
         print(f"  FTS rebuild skipped: {e}")
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description="Logos Bible Data Ingestion")
     parser.add_argument("--db-path", type=Path, default=None,
                         help="Path to logos.db (default: platform-specific app data dir)")
@@ -727,7 +727,7 @@ def main():
         conn.commit()
         conn.close()
         print("Schema ensured. Exiting (--schema-only).")
-        return
+        return 0
 
     print("\n--- Inserting books ---")
     book_ids = insert_books(conn)
@@ -792,7 +792,8 @@ def main():
 
     conn.close()
     print("Done!")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

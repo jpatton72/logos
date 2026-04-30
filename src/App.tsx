@@ -8,12 +8,12 @@ import { SearchPage } from './pages/SearchPage';
 import Settings from './pages/Settings';
 import Compare from './pages/Compare';
 import Lexicon from './pages/Lexicon';
-import { getBookmarks, deleteBookmark, getNotes, deleteNote, getStrongsHebrew, getStrongsGreek, createBookmark, getVerse } from './api';
+import { getBookmarks, deleteBookmark, getNotes, deleteNote, getStrongsHebrew, getStrongsGreek, createBookmark, getVerse, getChapter } from './api';
 import { NoteForm } from './components/NoteForm';
 import { AiPanel, type WordContext } from './components/AiPanel';
 import { StrongsSidebar } from './components/StrongsSidebar';
 import type { BookmarkWithVerse, Note as TauriNote } from './lib/tauri';
-import { invoke } from '@tauri-apps/api/core';
+import { exportNotesAndBookmarks } from './lib/tauri';
 
 const ORIGINAL_LANG_CODES = new Set(['wlc', 'sblgnt', 'oshb']);
 
@@ -131,11 +131,7 @@ function AppInner() {
   const toggleCurrentBookmark = async () => {
     try {
       // Get current verse (first verse of chapter for simplicity)
-      const chapterData = await invoke<any[]>('get_chapter', { 
-        book: currentBook, 
-        chapter: currentChapter, 
-        translations: ['KJV'] 
-      });
+      const chapterData = await getChapter(currentBook, currentChapter, ['KJV']);
       if (chapterData && chapterData.length > 0 && chapterData[0].verses && chapterData[0].verses.length > 0) {
         const firstVerse = chapterData[0].verses[0];
         const isBookmarked = bookmarks.some(b => b.verse_id === firstVerse.id);
@@ -567,7 +563,7 @@ function NotesPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose: ()
   const handleExport = async (format: 'json' | 'csv') => {
     try {
       setShowExportMenu(false);
-      const data = await invoke<any>('export_notes_and_bookmarks');
+      const data = await exportNotesAndBookmarks();
       
       if (format === 'json') {
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -580,22 +576,29 @@ function NotesPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose: ()
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
       } else {
-        // CSV export
+        // CSV export. Spreadsheets technically support multi-line CSV cells
+        // when properly quoted, but every "Open in Excel"-grade tool and
+        // every grep-based pipeline still mishandles them — collapse any
+        // newlines into a single space so each row stays one line.
+        const csvCell = (raw: string | null | undefined): string =>
+          (raw ?? '').replace(/[\r\n]+/g, ' ').replace(/"/g, '""');
+
         const lines: string[] = [];
         lines.push('Type,ID,Title,Content,Tags,Verse Reference,Created,Updated');
-        
+
         for (const note of data.notes) {
-          const title = (note.title || '').replace(/"/g, '""');
-          const content = (note.content || '').replace(/"/g, '""');
-          const tags = (note.tags || []).join('; ');
-          const verseRef = note.verse_ref || '';
+          const title = csvCell(note.title);
+          const content = csvCell(note.content);
+          const tags = csvCell((note.tags || []).join('; '));
+          const verseRef = csvCell(note.verse_ref);
           lines.push(`Note,${note.id},"${title}","${content}","${tags}","${verseRef}",${note.created_at},${note.updated_at}`);
         }
-        
+
         for (const bm of data.bookmarks) {
-          const label = (bm.label || '').replace(/"/g, '""');
-          const verseText = (bm.verse_text || '').replace(/"/g, '""');
-          lines.push(`Bookmark,${bm.id},"${label}","${verseText}","","${bm.verse_ref}",${bm.created_at},`);
+          const label = csvCell(bm.label);
+          const verseText = csvCell(bm.verse_text);
+          const verseRef = csvCell(bm.verse_ref);
+          lines.push(`Bookmark,${bm.id},"${label}","${verseText}","","${verseRef}",${bm.created_at},`);
         }
         
         const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
