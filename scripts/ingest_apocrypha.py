@@ -21,7 +21,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _user_check import add_allow_root_flag, assert_not_root
 
 
-STRICT_TESTAMENT_CHECK = "testament IN ('ot', 'nt')"
+# Schema version that introduces the relaxed testament CHECK. DBs older
+# than this need migrate_books_table(); newer ones are already fine.
+# Keep in sync with src-tauri/src/database/migrations.rs::CURRENT_SCHEMA
+# and scripts/ingest.py::CURRENT_SCHEMA.
+APOC_SCHEMA_VERSION = 2
 
 # Order_index values start AFTER the 66 canonical books. Genre is loosely
 # categorized; the UI doesn't currently filter on it for apocrypha.
@@ -57,11 +61,31 @@ def default_db_path() -> Path:
     return Path.home() / ".local" / "share" / "logos" / "Logos" / "data" / "logos.db"
 
 
+def get_schema_version(conn: sqlite3.Connection) -> int:
+    """Return the persisted schema_version, or 0 if the table or row
+    isn't present yet (treated as "older than any tagged release")."""
+    try:
+        row = conn.execute(
+            "SELECT version FROM schema_version WHERE id = 1"
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return 0
+    return int(row[0]) if row else 0
+
+
+def set_schema_version(conn: sqlite3.Connection, version: int) -> None:
+    conn.execute(
+        "INSERT INTO schema_version (id, version) VALUES (1, ?) "
+        "ON CONFLICT(id) DO UPDATE SET version = excluded.version, "
+        "                              updated_at = datetime('now')",
+        (version,),
+    )
+
+
 def needs_books_migration(conn: sqlite3.Connection) -> bool:
-    row = conn.execute(
-        "SELECT sql FROM sqlite_master WHERE type='table' AND name='books'"
-    ).fetchone()
-    return bool(row) and STRICT_TESTAMENT_CHECK in row[0]
+    """The relaxed-testament migration is required when the persisted
+    schema version is older than APOC_SCHEMA_VERSION."""
+    return get_schema_version(conn) < APOC_SCHEMA_VERSION
 
 
 def migrate_books_table(conn: sqlite3.Connection) -> None:
@@ -92,8 +116,14 @@ def migrate_books_table(conn: sqlite3.Connection) -> None:
               SELECT id, abbreviation, full_name, testament, genre, order_index FROM books;
             DROP TABLE books;
             ALTER TABLE books_new RENAME TO books;
+            CREATE TABLE IF NOT EXISTS schema_version (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                version INTEGER NOT NULL,
+                updated_at TEXT DEFAULT (datetime('now'))
+            );
             """
         )
+        set_schema_version(conn, APOC_SCHEMA_VERSION)
     finally:
         conn.execute("PRAGMA foreign_keys = ON")
     print("Migration complete.")

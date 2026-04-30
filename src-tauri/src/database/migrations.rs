@@ -199,6 +199,76 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
         [],
     )?;
 
+    // Full-text index over the user's notes. Title + content + tags are
+    // searched together. Triggers below keep notes_fts in lock-step with
+    // the notes table so search_notes() can use a single MATCH query
+    // instead of three LIKE '%q%' scans.
+    conn.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
+            note_id UNINDEXED,
+            title,
+            content,
+            tags,
+            tokenize='unicode61 remove_diacritics 1'
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE TRIGGER IF NOT EXISTS notes_after_insert AFTER INSERT ON notes BEGIN
+            INSERT INTO notes_fts (note_id, title, content, tags)
+            VALUES (NEW.id, COALESCE(NEW.title, ''), NEW.content, COALESCE(NEW.tags, ''));
+         END",
+        [],
+    )?;
+    conn.execute(
+        "CREATE TRIGGER IF NOT EXISTS notes_after_update AFTER UPDATE ON notes BEGIN
+            UPDATE notes_fts
+               SET title = COALESCE(NEW.title, ''),
+                   content = NEW.content,
+                   tags = COALESCE(NEW.tags, '')
+             WHERE note_id = NEW.id;
+         END",
+        [],
+    )?;
+    conn.execute(
+        "CREATE TRIGGER IF NOT EXISTS notes_after_delete AFTER DELETE ON notes BEGIN
+            DELETE FROM notes_fts WHERE note_id = OLD.id;
+         END",
+        [],
+    )?;
+    // One-time backfill so existing notes are searchable without
+    // requiring users to edit every note.
+    conn.execute(
+        "INSERT INTO notes_fts (note_id, title, content, tags)
+         SELECT n.id, COALESCE(n.title, ''), n.content, COALESCE(n.tags, '')
+         FROM notes n
+         WHERE NOT EXISTS (SELECT 1 FROM notes_fts f WHERE f.note_id = n.id)",
+        [],
+    )?;
+
+    // Schema version metadata. A single-row table the app and the Python
+    // ingest scripts both consult to detect old DBs and decide whether to
+    // run targeted data migrations (e.g. relaxing the books.testament
+    // CHECK constraint to allow apocryphal entries). Bump CURRENT_SCHEMA
+    // below whenever the schema changes in a way that needs a migration.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS schema_version (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            version INTEGER NOT NULL,
+            updated_at TEXT DEFAULT (datetime('now'))
+        )",
+        [],
+    )?;
+    conn.execute(
+        "INSERT OR IGNORE INTO schema_version (id, version) VALUES (1, ?)",
+        [CURRENT_SCHEMA],
+    )?;
+
     info!("Database migrations completed successfully");
     Ok(())
 }
+
+/// Bump on schema-affecting changes:
+///   1 = initial release
+///   2 = books.testament CHECK relaxed to allow 'apoc'
+pub const CURRENT_SCHEMA: i32 = 2;

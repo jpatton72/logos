@@ -20,6 +20,7 @@ pub use database::Database;
 pub struct AppState {
     pub db: Database,
     pub http: reqwest::Client,
+    pub ai_rate_limiter: ai::RateLimiter,
 }
 
 /// Resolve the app data directory. Returns ~/.local/share/logos on Unix.
@@ -95,7 +96,9 @@ fn init_app_state() -> Result<AppState, String> {
         e.to_string()
     })?;
 
-    Ok(AppState { db, http })
+    let ai_rate_limiter = ai::RateLimiter::from_env();
+
+    Ok(AppState { db, http, ai_rate_limiter })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -113,6 +116,7 @@ pub fn run() {
         // .plugin(tauri_plugin_updater::Builder::new().build())  // DISABLED: needs write access to target dir
         .manage(app_state.db)
         .manage(app_state.http)
+        .manage(app_state.ai_rate_limiter)
         .invoke_handler(tauri::generate_handler![
             get_verse,
             get_chapter,

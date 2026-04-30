@@ -157,6 +157,13 @@ SEFARIA_BOOK_MAP = {
 }
 
 
+# Schema version — keep in sync with src-tauri/src/database/migrations.rs::CURRENT_SCHEMA.
+# Bump when the schema changes in a way that needs a data migration.
+#   1 = initial release
+#   2 = books.testament CHECK relaxed to allow 'apoc'
+CURRENT_SCHEMA = 2
+
+
 def get_default_db_path() -> Path:
     """Mirror src-tauri/src/lib.rs::get_app_data_dir()."""
     system = platform.system()
@@ -330,6 +337,47 @@ def ensure_db_tables(conn: sqlite3.Connection) -> None:
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_verse ON notes(verse_id)")
+
+    # notes_fts: full-text index over the user's notes. Created AFTER the
+    # notes table so the triggers below can reference it. Triggers keep
+    # the FTS mirror in lock-step with notes; search_notes() in the Rust
+    # backend does a single MATCH instead of three LIKE '%q%' scans.
+    conn.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
+            note_id UNINDEXED,
+            title,
+            content,
+            tags,
+            tokenize='unicode61 remove_diacritics 1'
+        )
+    """)
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS notes_after_insert AFTER INSERT ON notes BEGIN
+            INSERT INTO notes_fts (note_id, title, content, tags)
+            VALUES (NEW.id, COALESCE(NEW.title, ''), NEW.content, COALESCE(NEW.tags, ''));
+        END
+    """)
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS notes_after_update AFTER UPDATE ON notes BEGIN
+            UPDATE notes_fts
+               SET title = COALESCE(NEW.title, ''),
+                   content = NEW.content,
+                   tags = COALESCE(NEW.tags, '')
+             WHERE note_id = NEW.id;
+        END
+    """)
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS notes_after_delete AFTER DELETE ON notes BEGIN
+            DELETE FROM notes_fts WHERE note_id = OLD.id;
+        END
+    """)
+    # Backfill any pre-existing notes so they're immediately searchable.
+    conn.execute("""
+        INSERT INTO notes_fts (note_id, title, content, tags)
+        SELECT n.id, COALESCE(n.title, ''), n.content, COALESCE(n.tags, '')
+        FROM notes n
+        WHERE NOT EXISTS (SELECT 1 FROM notes_fts f WHERE f.note_id = n.id)
+    """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS user_preferences (
             key TEXT PRIMARY KEY,
@@ -343,6 +391,21 @@ def ensure_db_tables(conn: sqlite3.Connection) -> None:
             last_read_at TEXT DEFAULT (datetime('now'))
         )
     """)
+
+    # Schema version metadata — see migrations.rs::CURRENT_SCHEMA. Both the
+    # app and the Python ingest scripts read this to decide if data
+    # migrations need to run.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS schema_version (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            version INTEGER NOT NULL,
+            updated_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.execute(
+        "INSERT OR IGNORE INTO schema_version (id, version) VALUES (1, ?)",
+        (CURRENT_SCHEMA,),
+    )
 
     conn.commit()
     print("Database tables verified.")

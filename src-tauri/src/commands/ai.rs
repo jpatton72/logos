@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use tauri::State;
 
-use crate::ai::{chat_with_provider, ChatMessage};
+use crate::ai::{chat_with_provider, ChatMessage, RateLimiter};
 use crate::database::{queries, Database};
 
 #[derive(Deserialize)]
@@ -13,10 +13,21 @@ struct AiChatInput {
 pub async fn ai_chat(
     db: State<'_, Database>,
     http: State<'_, reqwest::Client>,
+    rate_limiter: State<'_, RateLimiter>,
     messages_json: String,
     provider: String,
     model: String,
 ) -> Result<String, String> {
+    // Pre-flight: refuse the call if we've issued too many AI requests in
+    // the current window. Stops a runaway frontend (or a stuck retry loop)
+    // from racking up unbounded provider costs.
+    if let Err(retry_after) = rate_limiter.try_acquire() {
+        return Err(format!(
+            "Too many AI requests. Try again in {}s.",
+            retry_after.as_secs().max(1),
+        ));
+    }
+
     // Read API key from preferences via queries module
     let key_name = format!("api_key_{}", provider);
     let api_key = queries::get_preference(&db, &key_name)

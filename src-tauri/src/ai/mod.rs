@@ -3,8 +3,10 @@
 //! Supports: OpenAI, Anthropic, Google AI, Groq, Ollama.
 
 mod providers;
+pub mod rate_limit;
 
 pub use providers::*;
+pub use rate_limit::RateLimiter;
 
 // Re-export ChatMessage so commands can use it
 pub use providers::ChatMessage;
@@ -51,4 +53,7 @@ pub enum AiError {
 
     #[error("Invalid configuration: {0}")]
     InvalidConfig(String),
+
+    #[error("Rate limit exceeded — try again in {retry_after_secs}s")]
+    RateLimited { retry_after_secs: u64 },
 }

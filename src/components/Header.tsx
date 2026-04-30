@@ -85,8 +85,9 @@ export function Header({ onOpenSettings, onOpenBookmarks, onOpenNotes, onOpenCom
             alignItems: 'center',
           }}
           title="Home (reset reader)"
+          aria-label="Home (reset reader)"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M3 9.5L12 3l9 6.5V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z" />
           </svg>
         </button>
@@ -104,8 +105,9 @@ export function Header({ onOpenSettings, onOpenBookmarks, onOpenNotes, onOpenCom
             alignItems: 'center',
           }}
           title="Bookmarks"
+          aria-label="Bookmarks"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
           </svg>
         </button>
@@ -123,8 +125,9 @@ export function Header({ onOpenSettings, onOpenBookmarks, onOpenNotes, onOpenCom
             alignItems: 'center',
           }}
           title="Notes"
+          aria-label="Notes"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14 2 14 8 20 8" />
             <line x1="16" y1="13" x2="8" y2="13" />
@@ -145,8 +148,9 @@ export function Header({ onOpenSettings, onOpenBookmarks, onOpenNotes, onOpenCom
             alignItems: 'center',
           }}
           title="Compare Translations"
+          aria-label="Compare Translations"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
             <line x1="9" y1="3" x2="9" y2="21" />
             <line x1="15" y1="3" x2="15" y2="21" />
@@ -166,8 +170,9 @@ export function Header({ onOpenSettings, onOpenBookmarks, onOpenNotes, onOpenCom
             alignItems: 'center',
           }}
           title="Lexicon"
+          aria-label="Lexicon"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
             <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
             <line x1="8" y1="7" x2="16" y2="7" />
@@ -188,6 +193,7 @@ export function Header({ onOpenSettings, onOpenBookmarks, onOpenNotes, onOpenCom
             alignItems: 'center',
           }}
           title={darkMode ? 'Light mode' : 'Dark mode'}
+          aria-label={`Switch to ${darkMode ? 'light' : 'dark'} mode`}
         >
           {darkMode ? (
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -221,6 +227,7 @@ export function Header({ onOpenSettings, onOpenBookmarks, onOpenNotes, onOpenCom
             alignItems: 'center',
           }}
           title="Settings"
+          aria-label="Settings"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="12" cy="12" r="3" />

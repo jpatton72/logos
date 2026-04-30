@@ -337,12 +337,18 @@ function AppInner() {
 
         {/* Keyboard Shortcuts Help Modal */}
         {showKeyboardHelp && (
-          <div className="modal-backdrop" onClick={() => setShowKeyboardHelp(false)}>
+          <div
+            className="modal-backdrop"
+            onClick={() => setShowKeyboardHelp(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-keyboard-help-title"
+          >
             <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '24rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <h2 style={{ margin: 0, fontWeight: 700 }}>Keyboard Shortcuts</h2>
-                <button onClick={() => setShowKeyboardHelp(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                <h2 id="modal-keyboard-help-title" style={{ margin: 0, fontWeight: 700 }}>Keyboard Shortcuts</h2>
+                <button onClick={() => setShowKeyboardHelp(false)} aria-label="Close keyboard shortcuts help" style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                 </button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.875rem' }}>
@@ -397,12 +403,18 @@ function SettingsModal({ darkMode, onClose }: { darkMode: boolean; onClose: () =
   const navigate = useNavigate();
   const { fontSize, setFontSize, toggleDarkMode } = useAppStore();
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div
+      className="modal-backdrop"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-settings-title"
+    >
       <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '28rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-          <h2 style={{ margin: 0, fontWeight: 700 }}>Settings</h2>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          <h2 id="modal-settings-title" style={{ margin: 0, fontWeight: 700 }}>Settings</h2>
+          <button onClick={onClose} aria-label="Close settings" style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
 
@@ -471,12 +483,18 @@ function BookmarkPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose:
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div
+      className="modal-backdrop"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-bookmarks-title"
+    >
       <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '28rem', maxHeight: '80vh' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h2 style={{ margin: 0, fontWeight: 700 }}>Bookmarks ({bookmarks.length})</h2>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          <h2 id="modal-bookmarks-title" style={{ margin: 0, fontWeight: 700 }}>Bookmarks ({bookmarks.length})</h2>
+          <button onClick={onClose} aria-label="Close bookmarks" style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
         {loading ? (
@@ -620,12 +638,18 @@ function NotesPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose: ()
   // Render create/edit form
   if (showCreateForm || editingNote) {
     return (
-      <div className="modal-backdrop" onClick={onClose}>
+      <div
+        className="modal-backdrop"
+        onClick={onClose}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-note-form-title"
+      >
         <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '32rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <h2 style={{ margin: 0, fontWeight: 700 }}>{editingNote ? 'Edit Note' : 'New Note'}</h2>
-            <button onClick={() => { setShowCreateForm(false); setEditingNote(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+            <h2 id="modal-note-form-title" style={{ margin: 0, fontWeight: 700 }}>{editingNote ? 'Edit Note' : 'New Note'}</h2>
+            <button onClick={() => { setShowCreateForm(false); setEditingNote(null); }} aria-label="Close note form" style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
             </button>
           </div>
           <NoteForm
@@ -640,10 +664,16 @@ function NotesPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose: ()
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div
+      className="modal-backdrop"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-notes-title"
+    >
       <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '32rem', maxHeight: '80vh' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h2 style={{ margin: 0, fontWeight: 700 }}>Notes ({filteredNotes.length}{searchQuery ? ` of ${notes.length}` : ''})</h2>
+          <h2 id="modal-notes-title" style={{ margin: 0, fontWeight: 700 }}>Notes ({filteredNotes.length}{searchQuery ? ` of ${notes.length}` : ''})</h2>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             {/* Export dropdown */}
             <div style={{ position: 'relative' }}>
@@ -798,14 +828,20 @@ function StrongsPopupModal({ data, darkMode, onClose, onOpenAi }: { data: { word
     return () => { cancelled = true; };
   }, [data.strongsId, data.language]);
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div
+      className="modal-backdrop"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-strongs-title"
+    >
       <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '28rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-          <h2 style={{ margin: 0, fontWeight: 700, fontFamily: data.language === 'hebrew' ? "'Noto Serif Hebrew', serif" : "'Noto Serif', serif", fontSize: '1.5rem', color: data.language === 'hebrew' ? '#15803d' : '#1d4ed8' }}>
+          <h2 id="modal-strongs-title" style={{ margin: 0, fontWeight: 700, fontFamily: data.language === 'hebrew' ? "'Noto Serif Hebrew', serif" : "'Noto Serif', serif", fontSize: '1.5rem', color: data.language === 'hebrew' ? '#15803d' : '#1d4ed8' }}>
             {loading ? '…' : entry ? entry.word : data.word}
           </h2>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          <button onClick={onClose} aria-label="Close Strong's lookup" style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
         {loading ? (

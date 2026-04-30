@@ -673,25 +673,47 @@ pub fn delete_note(db: &Database, id: i64) -> SqliteResult<()> {
 
 pub fn search_notes(db: &Database, query: &str) -> SqliteResult<Vec<Note>> {
     let conn = db.conn.lock().unwrap();
-    let search_pattern = format!("%{}%", query);
-    
-    // Search in title, content, and tags (JSON array stored as text)
+
+    // Sanitize FTS5 input: strip operator characters and wrap each
+    // surviving word in double quotes so the user's text is treated as
+    // literal phrases (the Reader's search bar already does the same).
+    let cleaned: String = query
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c.is_whitespace() { c } else { ' ' })
+        .collect();
+    let tokens: Vec<String> = cleaned
+        .split_whitespace()
+        .map(|t| format!("\"{}\"", t))
+        .collect();
+    if tokens.is_empty() {
+        return Ok(Vec::new());
+    }
+    let match_query = tokens.join(" ");
+
+    // FTS5 MATCH against the notes_fts mirror, then JOIN back to notes
+    // for the full row data. notes_fts.rank gives us relevance ordering;
+    // ties fall back to most-recently-updated.
     let mut stmt = conn.prepare(
-        "SELECT id, verse_id, title, content, tags, created_at, updated_at 
-         FROM notes WHERE content LIKE ? OR title LIKE ? OR tags LIKE ? ORDER BY updated_at DESC"
+        "SELECT n.id, n.verse_id, n.title, n.content, n.tags, n.created_at, n.updated_at
+         FROM notes_fts f
+         JOIN notes n ON n.id = f.note_id
+         WHERE notes_fts MATCH ?
+         ORDER BY f.rank ASC, n.updated_at DESC",
     )?;
 
-    let notes = stmt.query_map(params![&search_pattern, &search_pattern, &search_pattern], |row| {
-        Ok(Note {
-            id: row.get(0)?,
-            verse_id: row.get(1)?,
-            title: row.get(2)?,
-            content: row.get(3)?,
-            tags: parse_tags(row.get(4)?),
-            created_at: row.get(5)?,
-            updated_at: row.get(6)?,
-        })
-    })?.collect::<Result<Vec<_>, _>>()?;
+    let notes = stmt
+        .query_map(params![match_query], |row| {
+            Ok(Note {
+                id: row.get(0)?,
+                verse_id: row.get(1)?,
+                title: row.get(2)?,
+                content: row.get(3)?,
+                tags: parse_tags(row.get(4)?),
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(notes)
 }

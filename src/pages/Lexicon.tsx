@@ -42,6 +42,9 @@ function WordDetail({ word, strongsEntry, darkMode, onClose }: WordDetailProps) 
     <div
       className="modal-backdrop"
       onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${isHebrew ? 'Hebrew' : 'Greek'} word detail`}
       style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
     >
       <div
