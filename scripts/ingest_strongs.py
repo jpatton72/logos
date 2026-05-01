@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Ingest Strong's Hebrew and Greek lexicons from openscriptures/strongs into logos.db.
+Ingest Strong's Hebrew and Greek lexicons from openscriptures/strongs into aletheia.db.
 
 Data source: https://github.com/openscriptures/strongs
 - hebrew/strongs-hebrew-dictionary.js  (~2MB, CC-BY-SA)
@@ -29,10 +29,10 @@ def get_default_db_path() -> Path:
         appdata = os.environ.get("APPDATA")
         if not appdata:
             raise SystemExit("APPDATA is not set; pass --db-path explicitly.")
-        return Path(appdata) / "logos" / "Logos" / "data" / "logos.db"
+        return Path(appdata) / "aletheia" / "Aletheia" / "data" / "aletheia.db"
     if system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "logos" / "Logos" / "data" / "logos.db"
-    return Path.home() / ".local" / "share" / "logos" / "Logos" / "data" / "logos.db"
+        return Path.home() / "Library" / "Application Support" / "aletheia" / "Aletheia" / "data" / "aletheia.db"
+    return Path.home() / ".local" / "share" / "aletheia" / "Aletheia" / "data" / "aletheia.db"
 
 
 def ensure_parent_dir(path: Path) -> None:
@@ -161,9 +161,9 @@ def ingest_hebrew(conn: sqlite3.Connection) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Ingest Strong's Hebrew and Greek lexicons into logos.db")
+    parser = argparse.ArgumentParser(description="Ingest Strong's Hebrew and Greek lexicons into aletheia.db")
     parser.add_argument("--db-path", type=Path, default=None,
-                        help="Path to logos.db (default: platform-specific app data dir)")
+                        help="Path to aletheia.db (default: platform-specific app data dir)")
     add_allow_root_flag(parser)
     args = parser.parse_args()
     assert_not_root(args.allow_root, script_name="ingest_strongs.py")

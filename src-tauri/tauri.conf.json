@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Logos Bible",
+  "productName": "Aletheia",
   "version": "0.1.0",
-  "identifier": "com.logos.bible",
+  "identifier": "com.aletheia.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Logos Bible",
+        "title": "Aletheia",
         "width": 1200,
         "height": 800,
         "minWidth": 800,
@@ -38,11 +38,11 @@
     ],
     "category": "Education",
     "shortDescription": "Scholarly Bible study application with original languages and AI assistance",
-    "longDescription": "Logos is a desktop Bible study application featuring the full Hebrew and Greek original texts, side-by-side translation comparison, Strong's Concordance integration, morphological analysis, personal notes and bookmarks, and AI-powered study assistance.",
-    "copyright": "2025",
-    "publisher": "Logos",
+    "longDescription": "Aletheia is a desktop Bible study application featuring the full Hebrew and Greek original texts, side-by-side translation comparison, Strong's Concordance integration, morphological analysis, personal notes and bookmarks, and AI-powered study assistance.",
+    "copyright": "2026",
+    "publisher": "Aletheia",
     "resources": {
-      "logos.db": "logos.db"
+      "aletheia.db": "aletheia.db"
     },
     "windows": {
       "nsis": {

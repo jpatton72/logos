@@ -48,10 +48,10 @@ def default_db_path() -> Path:
         appdata = os.environ.get("APPDATA")
         if not appdata:
             raise SystemExit("APPDATA is not set; pass --db-path explicitly.")
-        return Path(appdata) / "logos" / "Logos" / "data" / "logos.db"
+        return Path(appdata) / "aletheia" / "Aletheia" / "data" / "aletheia.db"
     if system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "logos" / "Logos" / "data" / "logos.db"
-    return Path.home() / ".local" / "share" / "logos" / "Logos" / "data" / "logos.db"
+        return Path.home() / "Library" / "Application Support" / "aletheia" / "Aletheia" / "data" / "aletheia.db"
+    return Path.home() / ".local" / "share" / "aletheia" / "Aletheia" / "data" / "aletheia.db"
 
 
 def get_translation_id(conn: sqlite3.Connection, abbr: str) -> int:
@@ -177,7 +177,7 @@ def main() -> int:
         default=str(Path(__file__).resolve().parent.parent / "public" / "morphgnt"),
         help="Directory containing MorphGNT *.txt files.",
     )
-    parser.add_argument("--db-path", help="Path to logos.db (default: app data dir).")
+    parser.add_argument("--db-path", help="Path to aletheia.db (default: app data dir).")
     parser.add_argument(
         "--translation",
         default="sblgnt",

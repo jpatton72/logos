@@ -295,6 +295,37 @@ export default function Settings() {
           {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save AI Settings'}
         </button>
       </section>
+
+      {/* About / Attributions */}
+      <section style={{ marginBottom: '2rem', padding: '1.25rem', borderRadius: '12px', backgroundColor: darkMode ? '#1a1a14' : '#fefce8', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>
+        <h3 style={sectionTitleStyle}>About</h3>
+        <p style={{ fontSize: '0.8rem', color: darkMode ? '#a8a29e' : '#78716c', margin: '0 0 0.75rem', lineHeight: 1.55 }}>
+          <strong style={{ color: darkMode ? '#f5f5f4' : '#292524' }}>Aletheia</strong> — Greek <em>ἀλήθεια</em>, "truth" or
+          "unconcealedness". A local-first Bible study application with original-language tools and optional AI assistance.
+        </p>
+        <details>
+          <summary style={{ fontSize: '0.75rem', fontWeight: 600, color: darkMode ? '#a8a29e' : '#78716c', cursor: 'pointer', userSelect: 'none', marginBottom: '0.5rem' }}>
+            Data sources & licenses
+          </summary>
+          <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', lineHeight: 1.6, color: darkMode ? '#a8a29e' : '#78716c' }}>
+            <p style={{ margin: '0 0 0.5rem' }}>
+              <strong>Bibles & lexicons:</strong> KJV (Public Domain), Westminster Leningrad Codex (Open Translation License),
+              OpenScriptures Hebrew Bible morphology (CC-BY 4.0), MorphGNT/SBLGNT morphology (CC-BY-SA 3.0),
+              Strong's Greek + Hebrew (Public Domain).
+            </p>
+            <p style={{ margin: '0 0 0.5rem' }}>
+              <strong>Fonts:</strong> Inter, Lora, Noto Serif, and Noto Serif Hebrew — all SIL Open Font License,
+              vendored locally (the app makes no font CDN calls).
+            </p>
+            <p style={{ margin: '0 0 0.5rem' }}>
+              See <code>ATTRIBUTIONS.md</code> in the source repository for the full list with links.
+            </p>
+            <p style={{ margin: '0', fontStyle: 'italic' }}>
+              Not affiliated with, endorsed by, or sponsored by Faithlife Corporation's Logos Bible Software product line.
+            </p>
+          </div>
+        </details>
+      </section>
     </div>
   );
 }

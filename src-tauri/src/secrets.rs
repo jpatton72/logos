@@ -9,7 +9,17 @@ use keyring::Entry;
 
 /// Service name used for every keyring entry. The user/account field is
 /// `api_key_<provider>`.
-const SERVICE: &str = "com.logos.app";
+const SERVICE: &str = "com.aletheia.app";
+
+/// Service name used by builds shipped under the previous app name. Read
+/// only by `migrate_legacy_keyring_entries` so renamed installs pick up
+/// existing keys without forcing the user to re-paste them.
+const LEGACY_SERVICE: &str = "com.logos.app";
+
+/// Providers we know about. Used by the legacy-keyring migration since
+/// the keyring API has no "list every entry for this service" call —
+/// we have to probe each known account name.
+const KNOWN_PROVIDERS: &[&str] = &["openai", "anthropic", "google", "groq", "ollama"];
 
 #[derive(Debug, thiserror::Error)]
 pub enum SecretError {
@@ -65,6 +75,44 @@ pub fn delete_api_key(provider: &str) -> Result<(), SecretError> {
         Ok(()) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(SecretError::Keyring(e)),
+    }
+}
+
+/// One-time migration: copies any keyring entries left over from the
+/// previous app name (`com.logos.app`) into the new service. Probes each
+/// known provider; if a value exists under the legacy service it gets
+/// re-stored under the new one and the legacy entry is deleted.
+///
+/// Idempotent — the second invocation finds no legacy entries and exits
+/// without touching anything. Failures are logged but non-fatal.
+pub fn migrate_legacy_keyring_entries() {
+    for provider in KNOWN_PROVIDERS {
+        let user = format!("api_key_{}", provider);
+        let legacy = match keyring::Entry::new(LEGACY_SERVICE, &user) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let value = match legacy.get_password() {
+            Ok(s) => s,
+            Err(keyring::Error::NoEntry) => continue,
+            Err(e) => {
+                tracing::error!("Legacy keyring read failed for {}: {}", provider, e);
+                continue;
+            }
+        };
+        match set_api_key(provider, &value) {
+            Ok(()) => {
+                tracing::info!("Migrated legacy keyring entry for {}", provider);
+                if let Err(e) = legacy.delete_credential() {
+                    tracing::error!("Failed to remove legacy keyring entry for {}: {}", provider, e);
+                }
+            }
+            Err(e) => {
+                // Leave the legacy entry alone so the user doesn't lose
+                // the key if the new vault store failed.
+                tracing::error!("Failed to copy legacy keyring entry for {}: {}", provider, e);
+            }
+        }
     }
 }
 

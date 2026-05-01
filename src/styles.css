@@ -1,4 +1,21 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,600;1,400&family=Noto+Serif:ital,wght@0,400;0,600;1,400&family=Noto+Serif+Hebrew:wght@400;600&display=swap');
+/* Self-hosted fonts via @fontsource. Replaces the previous
+ * fonts.googleapis.com import so the app makes no network calls on
+ * launch — important for the local-first/offline-capable promise and
+ * for users behind restrictive network policies. The packages bundle
+ * woff2 files at every weight we use; Vite emits them into dist/assets
+ * with content-hashed filenames. */
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+@import "@fontsource/lora/400.css";
+@import "@fontsource/lora/600.css";
+@import "@fontsource/lora/400-italic.css";
+@import "@fontsource/noto-serif/400.css";
+@import "@fontsource/noto-serif/600.css";
+@import "@fontsource/noto-serif/400-italic.css";
+@import "@fontsource/noto-serif-hebrew/400.css";
+@import "@fontsource/noto-serif-hebrew/600.css";
 
 @import "tailwindcss";
 

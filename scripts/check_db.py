@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Quick sanity-check of the Logos SQLite DB.
+"""Quick sanity-check of the Aletheia SQLite DB.
 
 Usage:
     python scripts/check_db.py
-    python scripts/check_db.py --db-path /path/to/logos.db
+    python scripts/check_db.py --db-path /path/to/aletheia.db
 """
 from __future__ import annotations
 
@@ -21,15 +21,15 @@ def default_db_path() -> Path:
         appdata = os.environ.get("APPDATA")
         if not appdata:
             raise SystemExit("APPDATA is not set; pass --db-path explicitly.")
-        return Path(appdata) / "logos" / "Logos" / "data" / "logos.db"
+        return Path(appdata) / "aletheia" / "Aletheia" / "data" / "aletheia.db"
     if system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "logos" / "Logos" / "data" / "logos.db"
-    return Path.home() / ".local" / "share" / "logos" / "Logos" / "data" / "logos.db"
+        return Path.home() / "Library" / "Application Support" / "aletheia" / "Aletheia" / "data" / "aletheia.db"
+    return Path.home() / ".local" / "share" / "aletheia" / "Aletheia" / "data" / "aletheia.db"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--db-path", help="Path to logos.db (default: app data dir).")
+    parser.add_argument("--db-path", help="Path to aletheia.db (default: app data dir).")
     args = parser.parse_args()
 
     db_path = Path(args.db_path) if args.db_path else default_db_path()

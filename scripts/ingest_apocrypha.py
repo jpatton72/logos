@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Ingest apocryphal / non-canonical books from a Bible-JSON file into the
-Logos SQLite DB. Adds new rows to `books` (testament='apoc') and inserts the
+Aletheia SQLite DB. Adds new rows to `books` (testament='apoc') and inserts the
 verses under the chosen translation.
 
 Source format (Amosamevor/Bible-json):
@@ -55,10 +55,10 @@ def default_db_path() -> Path:
         appdata = os.environ.get("APPDATA")
         if not appdata:
             raise SystemExit("APPDATA is not set; pass --db-path explicitly.")
-        return Path(appdata) / "logos" / "Logos" / "data" / "logos.db"
+        return Path(appdata) / "aletheia" / "Aletheia" / "data" / "aletheia.db"
     if system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "logos" / "Logos" / "data" / "logos.db"
-    return Path.home() / ".local" / "share" / "logos" / "Logos" / "data" / "logos.db"
+        return Path.home() / "Library" / "Application Support" / "aletheia" / "Aletheia" / "data" / "aletheia.db"
+    return Path.home() / ".local" / "share" / "aletheia" / "Aletheia" / "data" / "aletheia.db"
 
 
 def get_schema_version(conn: sqlite3.Connection) -> int:
@@ -279,7 +279,7 @@ def main() -> int:
         default="KJV",
         help="Translation abbreviation to attach these verses to (default: KJV).",
     )
-    parser.add_argument("--db-path", help="Path to logos.db (default: app data dir).")
+    parser.add_argument("--db-path", help="Path to aletheia.db (default: app data dir).")
     parser.add_argument(
         "--download-url",
         help="If --json doesn't exist locally, download it from this URL.",

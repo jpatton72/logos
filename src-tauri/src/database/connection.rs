@@ -17,7 +17,7 @@ impl Database {
             rusqlite::Error::InvalidPath(data_dir.clone())
         })?;
 
-        let db_path = data_dir.join("logos.db");
+        let db_path = data_dir.join("aletheia.db");
         info!("Opening database at: {:?}", db_path);
 
         let conn = Connection::open(&db_path)?;

@@ -1,7 +1,7 @@
 """Privilege-level guard shared by every ingest script.
 
 Running ingest scripts under `sudo` (or as root) places the database under
-`/root/.local/share/logos/...` instead of the user's home directory, and
+`/root/.local/share/aletheia/...` instead of the user's home directory, and
 populates `node_modules/` and `target/` with root-owned files. The Logos
 app then runs as the regular user, can't see the populated DB, and the
 project tree is half-uninstallable. This is the single most common
@@ -40,7 +40,7 @@ def assert_not_root(allow_root: bool, script_name: str | None = None) -> None:
         sys.stderr.write(
             "WARNING: running as root because --allow-root was passed.\n"
             "         The DB and any generated files will be created under root's home,\n"
-            "         not your normal user's home. The Logos app, when launched as a\n"
+            "         not your normal user's home. The Aletheia app, when launched as a\n"
             "         regular user, will not see this database.\n\n"
         )
         return
@@ -61,7 +61,7 @@ def _abort(script_name: str | None) -> NoReturn:
     sys.stderr.write(
         f"ERROR: {name} must not be run as root.\n"
         "\n"
-        "Running as root creates the database under /root/.local/share/logos/\n"
+        "Running as root creates the database under /root/.local/share/aletheia/\n"
         "instead of your home directory, leaves root-owned files in node_modules/\n"
         "and src-tauri/target/, and the Logos app won't be able to read the DB\n"
         "when it launches as your regular user.\n"

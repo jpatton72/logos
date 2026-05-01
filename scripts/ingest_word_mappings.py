@@ -11,9 +11,9 @@ What it does:
   2. Populates terms_fts from Greek and Hebrew verse text for term-frequency browsing
 
 Default database paths (mirrors src-tauri/src/lib.rs::get_app_data_dir):
-  - Linux:   ~/.local/share/logos/Logos/data/logos.db
-  - macOS:   ~/Library/Application Support/logos/Logos/data/logos.db
-  - Windows: %APPDATA%/logos/Logos/data/logos.db
+  - Linux:   ~/.local/share/aletheia/Aletheia/data/aletheia.db
+  - macOS:   ~/Library/Application Support/aletheia/Aletheia/data/aletheia.db
+  - Windows: %APPDATA%/aletheia/Aletheia/data/aletheia.db
 """
 
 import sqlite3
@@ -35,10 +35,10 @@ def get_default_db_path() -> Path:
         appdata = os.environ.get("APPDATA")
         if not appdata:
             raise SystemExit("APPDATA is not set; pass --db-path explicitly.")
-        return Path(appdata) / "logos" / "Logos" / "data" / "logos.db"
+        return Path(appdata) / "aletheia" / "Aletheia" / "data" / "aletheia.db"
     if system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "logos" / "Logos" / "data" / "logos.db"
-    return Path.home() / ".local" / "share" / "logos" / "Logos" / "data" / "logos.db"
+        return Path.home() / "Library" / "Application Support" / "aletheia" / "Aletheia" / "data" / "aletheia.db"
+    return Path.home() / ".local" / "share" / "aletheia" / "Aletheia" / "data" / "aletheia.db"
 
 
 def tokenise(text: str) -> list[str]:
@@ -157,7 +157,7 @@ def populate_terms_fts(conn: sqlite3.Connection) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Populate word_mappings Strong's IDs and terms_fts")
     parser.add_argument("--db-path", type=Path, default=None,
-                        help="Path to logos.db (default: platform-specific app data dir)")
+                        help="Path to aletheia.db (default: platform-specific app data dir)")
     add_allow_root_flag(parser)
     args = parser.parse_args()
     assert_not_root(args.allow_root, script_name="ingest_word_mappings.py")

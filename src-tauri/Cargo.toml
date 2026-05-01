@@ -1,12 +1,12 @@
 [package]
-name = "logos"
+name = "aletheia"
 version = "0.1.0"
-description = "Logos - Bible Study Application"
-authors = ["Logos Team"]
+description = "Aletheia - Bible Study Application"
+authors = ["Aletheia Team"]
 edition = "2021"
 
 [lib]
-name = "logos_lib"
+name = "aletheia_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Rebuild the Logos bundled database from scratch.
+"""Rebuild the Aletheia bundled database from scratch.
 
 Runs every ingester in the correct order and copies the result to
-src-tauri/logos.db so the next `npm run tauri build` ships a fully populated
+src-tauri/aletheia.db so the next `npm run tauri build` ships a fully populated
 database. End users never need to run this — they just install the app — but
 developers preparing a release should run this whenever upstream data sources
 change.
 
 Usage:
     python scripts/rebuild_database.py
-    python scripts/rebuild_database.py --db-path /path/to/logos.db
+    python scripts/rebuild_database.py --db-path /path/to/aletheia.db
 
 Steps performed:
     1. Ingest KJV / SBLGNT / WLC base text (existing scripts/ingest.py).
@@ -19,7 +19,7 @@ Steps performed:
     5. Ingest MorphGNT Greek word_mappings (auto-download from morphgnt/sblgnt).
     6. Ingest OSHB Hebrew word_mappings (auto-download from openscriptures/morphhb).
     7. Resolve lemma -> Strong's IDs and populate terms_fts (ingest_word_mappings.py).
-    8. Copy the populated DB to src-tauri/logos.db.
+    8. Copy the populated DB to src-tauri/aletheia.db.
 
 Step 1 + 2 are skipped if the DB already has populated `verses` and Strong's
 tables (so reruns don't duplicate work).
@@ -40,7 +40,7 @@ from _user_check import add_allow_root_flag, assert_not_root
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 SCRIPTS = ROOT / "scripts"
-BUNDLED_DB = ROOT / "src-tauri" / "logos.db"
+BUNDLED_DB = ROOT / "src-tauri" / "aletheia.db"
 
 NKJV_URL = "https://raw.githubusercontent.com/Amosamevor/Bible-json/main/versions/en/NEW%20KING%20JAMES%20VERSION.json"
 ESV_URL = "https://raw.githubusercontent.com/Amosamevor/Bible-json/main/versions/en/ENGLISH%20STANDARD%20VERSION.json"
@@ -53,10 +53,10 @@ def default_db_path() -> Path:
         appdata = os.environ.get("APPDATA")
         if not appdata:
             raise SystemExit("APPDATA is not set; pass --db-path explicitly.")
-        return Path(appdata) / "logos" / "Logos" / "data" / "logos.db"
+        return Path(appdata) / "aletheia" / "Aletheia" / "data" / "aletheia.db"
     if system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "logos" / "Logos" / "data" / "logos.db"
-    return Path.home() / ".local" / "share" / "logos" / "Logos" / "data" / "logos.db"
+        return Path.home() / "Library" / "Application Support" / "aletheia" / "Aletheia" / "data" / "aletheia.db"
+    return Path.home() / ".local" / "share" / "aletheia" / "Aletheia" / "data" / "aletheia.db"
 
 
 def run(*cmd: str) -> None:
@@ -90,9 +90,9 @@ def has_base_text(db_path: Path) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--db-path", help="Path to logos.db (default: app data dir).")
+    parser.add_argument("--db-path", help="Path to aletheia.db (default: app data dir).")
     parser.add_argument("--skip-base", action="store_true", help="Skip ingest.py + ingest_strongs.py.")
-    parser.add_argument("--skip-copy", action="store_true", help="Don't copy the result to src-tauri/logos.db.")
+    parser.add_argument("--skip-copy", action="store_true", help="Don't copy the result to src-tauri/aletheia.db.")
     add_allow_root_flag(parser)
     args = parser.parse_args()
     assert_not_root(args.allow_root, script_name="rebuild_database.py")

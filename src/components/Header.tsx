@@ -65,7 +65,7 @@ export function Header({ onOpenSettings, onOpenBookmarks, onOpenNotes, onOpenCom
               letterSpacing: '-0.02em',
             }}
           >
-            Logos
+            Aletheia
           </span>
         </div>
       </div>

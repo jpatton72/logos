@@ -25,23 +25,81 @@ pub struct AppState {
     pub ai_rate_limiter: ai::RateLimiter,
 }
 
-/// Resolve the app data directory. Returns ~/.local/share/logos on Unix.
+/// Resolve the app data directory. Returns ~/.local/share/aletheia on Unix.
 fn get_app_data_dir() -> PathBuf {
-    if let Some(proj_dirs) = ProjectDirs::from("com", "logos", "Logos") {
+    if let Some(proj_dirs) = ProjectDirs::from("com", "aletheia", "Aletheia") {
         proj_dirs.data_dir().to_path_buf()
     } else {
         // Fallback
         let mut path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-        path.push("logos");
+        path.push("aletheia");
         path
     }
+}
+
+/// Pre-rename data directory used by builds shipped under the old name.
+/// Returned only so the startup migration knows where to look.
+fn legacy_logos_data_dir() -> Option<PathBuf> {
+    ProjectDirs::from("com", "logos", "Logos").map(|p| p.data_dir().to_path_buf())
+}
+
+/// One-time migration: if the old `~/AppData/.../logos/Logos/data` tree
+/// exists but the Aletheia tree does not, move user data over so existing
+/// installs don't lose their notes/bookmarks/preferences across the
+/// rename. The bundled `logos.db` is renamed to `aletheia.db` as part of
+/// the move; FTS, schema, and row data are unchanged.
+fn migrate_legacy_data_dir(new_dir: &PathBuf) {
+    if new_dir.exists() {
+        return;
+    }
+    let Some(old) = legacy_logos_data_dir() else { return };
+    if !old.exists() {
+        return;
+    }
+    info!("Migrating user data {:?} -> {:?}", old, new_dir);
+    if let Some(parent) = new_dir.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    // Try a rename first (cheap, atomic on the same volume); fall back to
+    // copy + remove if that fails (e.g. cross-volume).
+    if std::fs::rename(&old, new_dir).is_err() {
+        if let Err(e) = copy_dir_recursive(&old, new_dir) {
+            error!("Legacy data migration failed: {}", e);
+            return;
+        }
+        let _ = std::fs::remove_dir_all(&old);
+    }
+    // The DB file kept its old name inside the migrated tree. Rename it
+    // so the rest of the app finds it under the new convention.
+    let old_db = new_dir.join("logos.db");
+    let new_db = new_dir.join("aletheia.db");
+    if old_db.exists() && !new_db.exists() {
+        if let Err(e) = std::fs::rename(&old_db, &new_db) {
+            error!("Failed to rename logos.db -> aletheia.db: {}", e);
+        }
+    }
+}
+
+fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let path = entry.path();
+        let target = dst.join(entry.file_name());
+        if path.is_dir() {
+            copy_dir_recursive(&path, &target)?;
+        } else {
+            std::fs::copy(&path, &target)?;
+        }
+    }
+    Ok(())
 }
 
 fn setup_logging(app_data_dir: &PathBuf) {
     let logs_dir = app_data_dir.join("logs");
     let _ = std::fs::create_dir_all(&logs_dir);
 
-    let file_appender = tracing_appender::rolling::daily(&logs_dir, "logos.log");
+    let file_appender = tracing_appender::rolling::daily(&logs_dir, "aletheia.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     // Keep the guard alive for the lifetime of the app by leaking it
@@ -54,12 +112,15 @@ fn setup_logging(app_data_dir: &PathBuf) {
         .with_ansi(false)
         .init();
 
-    info!("Logos v{} starting up", env!("CARGO_PKG_VERSION"));
+    info!("Aletheia v{} starting up", env!("CARGO_PKG_VERSION"));
     info!("App data directory: {:?}", app_data_dir);
 }
 
 fn init_app_state() -> Result<AppState, String> {
     let app_data_dir = get_app_data_dir();
+    // Move legacy `logos/Logos` data over before logging fires up so the
+    // logs directory inside the migrated tree gets reused.
+    migrate_legacy_data_dir(&app_data_dir);
     setup_logging(&app_data_dir);
 
     // Ensure directory exists
@@ -69,20 +130,20 @@ fn init_app_state() -> Result<AppState, String> {
     })?;
 
     // Seed user DB from bundled copy on first run if DB is missing or empty
-    let db_path = app_data_dir.join("logos.db");
+    let db_path = app_data_dir.join("aletheia.db");
     let needs_seed = !db_path.exists()
         || db_path.metadata().map(|m| m.len() == 0).unwrap_or(false);
     if needs_seed {
         if let Ok(exe) = std::env::current_exe() {
             let bundle_root = exe.parent().unwrap_or(&exe);
-            let bundled = bundle_root.join("logos.db");
+            let bundled = bundle_root.join("aletheia.db");
             if bundled.exists() {
                 match std::fs::copy(&bundled, &db_path) {
                     Ok(_) => info!("Seeded bundled database to {:?}", db_path),
                     Err(e) => info!("No bundled DB available or copy failed: {}", e),
                 }
             } else {
-                info!("Bundled logos.db not found at {:?}", bundled);
+                info!("Bundled aletheia.db not found at {:?}", bundled);
             }
         }
     }
@@ -93,9 +154,14 @@ fn init_app_state() -> Result<AppState, String> {
         e.to_string()
     })?;
 
-    // Move any plaintext API keys left over from earlier builds into the
-    // OS credential vault. Best-effort: a vault outage logs but doesn't
-    // block startup.
+    // Move any keyring entries left over from the pre-rename `com.logos.app`
+    // service into the new `com.aletheia.app` service so existing users
+    // don't have to re-paste their API keys after upgrading.
+    secrets::migrate_legacy_keyring_entries();
+
+    // Move any plaintext API keys left over from even earlier builds into
+    // the OS credential vault. Best-effort: a vault outage logs but
+    // doesn't block startup.
     secrets::migrate_api_keys_from_preferences(&db);
 
     let http = ai::build_http_client().map_err(|e| {

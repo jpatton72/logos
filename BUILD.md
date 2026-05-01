@@ -19,34 +19,34 @@ Run, in order:
 ```sh
 # 1. Pull the latest source data and rebuild the bundled database.
 #    Auto-downloads every translation/MorphGNT/OSHB asset that's missing.
-#    Writes the result to `%APPDATA%/logos/Logos/data/logos.db` AND copies
-#    it to `src-tauri/logos.db` (the path Tauri bundles).
+#    Writes the result to `%APPDATA%/aletheia/Aletheia/data/aletheia.db` AND copies
+#    it to `src-tauri/aletheia.db` (the path Tauri bundles).
 python scripts/rebuild_database.py
 
 # 2. Build the installer. Output goes to:
-#      src-tauri/target/release/bundle/nsis/Logos Bible_0.1.0_x64-setup.exe
-#      src-tauri/target/release/bundle/msi/Logos Bible_0.1.0_x64_en-US.msi
+#      src-tauri/target/release/bundle/nsis/Aletheia_0.1.0_x64-setup.exe
+#      src-tauri/target/release/bundle/msi/Aletheia_0.1.0_x64_en-US.msi
 npm run tauri build
 ```
 
 The NSIS `*-setup.exe` is the canonical single-executable deploy artifact:
-running it installs the Logos app, the bundled icon, and the fully populated
-`logos.db` (KJV, NKJV, ESV, SBLGNT, WLC, KJV Apocrypha, plus all 444k Hebrew
+running it installs the Aletheia app, the bundled icon, and the fully populated
+`aletheia.db` (KJV, NKJV, ESV, SBLGNT, WLC, KJV Apocrypha, plus all 444k Hebrew
 + Greek word mappings with Strong's IDs). Users do not need Python or any of
 the ingest scripts to use the app.
 
 ## Upgrading an existing install
 
 If the user already has the app installed from a prior version, their
-`%APPDATA%/logos/Logos/data/logos.db` won't be overwritten by the new
+`%APPDATA%/aletheia/Aletheia/data/aletheia.db` won't be overwritten by the new
 installer (the seeding code only runs when the file is missing or empty).
 
 Until automatic schema-version upgrades land, the recommended upgrade
 procedure is:
 
 1. Quit the app.
-2. Move `%APPDATA%\logos\Logos\data\logos.db` aside (e.g. rename to
-   `logos.db.bak`) — this preserves any notes or bookmarks the user wants to
+2. Move `%APPDATA%\aletheia\Aletheia\data\aletheia.db` aside (e.g. rename to
+   `aletheia.db.bak`) — this preserves any notes or bookmarks the user wants to
    migrate manually.
 3. Run the new installer.
 4. (Optional) Use a SQLite tool to copy `notes`, `bookmarks`,
@@ -75,6 +75,6 @@ the file/dir argument is missing.
 These are generated/downloaded; the repo expects them to be re-derivable:
 
 - `src-tauri/target/`, `dist/`, `node_modules/` — build outputs
-- `src-tauri/logos.db` — re-created by `scripts/rebuild_database.py`
+- `src-tauri/aletheia.db` — re-created by `scripts/rebuild_database.py`
 - `data/*.json`, `data/oshb/` — auto-downloaded by the ingest scripts
 - `*.msi`, `*-setup.exe` — distribute via GitHub Releases instead of git

@@ -227,7 +227,10 @@ export const useAppStore = create<AppState>()(
       setFontSize: (size) => set({ fontSize: size }),
     }),
     {
-      name: 'logos-app-state',
+      // Renamed from 'logos-app-state' for the Aletheia rebrand. The
+      // pre-mount block in main.tsx copies the legacy key once on first
+      // load so existing users keep their UI state.
+      name: 'aletheia-app-state',
       partialize: (s) => ({
         currentBook: s.currentBook,
         currentChapter: s.currentChapter,

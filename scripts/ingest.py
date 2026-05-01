@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Logos Bible Data Ingestion Script
+Aletheia Bible Data Ingestion Script
 
-Downloads and ingests Bible text data into the Logos SQLite database.
+Downloads and ingests Bible text data into the Aletheia SQLite database.
 Run with: python3 scripts/ingest.py [--db-path PATH] [--sample] [--kjv-only] [--skip-greek] [--skip-hebrew]
 
 Default database paths (mirrors src-tauri/src/lib.rs::get_app_data_dir):
-  - Linux:   ~/.local/share/logos/Logos/data/logos.db
-  - macOS:   ~/Library/Application Support/logos/Logos/data/logos.db
-  - Windows: %APPDATA%/logos/Logos/data/logos.db
+  - Linux:   ~/.local/share/aletheia/Aletheia/data/aletheia.db
+  - macOS:   ~/Library/Application Support/aletheia/Aletheia/data/aletheia.db
+  - Windows: %APPDATA%/aletheia/Aletheia/data/aletheia.db
 """
 
 import sqlite3
@@ -171,10 +171,10 @@ def get_default_db_path() -> Path:
         appdata = os.environ.get("APPDATA")
         if not appdata:
             raise SystemExit("APPDATA is not set; pass --db-path explicitly.")
-        return Path(appdata) / "logos" / "Logos" / "data" / "logos.db"
+        return Path(appdata) / "aletheia" / "Aletheia" / "data" / "aletheia.db"
     if system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "logos" / "Logos" / "data" / "logos.db"
-    return Path.home() / ".local" / "share" / "logos" / "Logos" / "data" / "logos.db"
+        return Path.home() / "Library" / "Application Support" / "aletheia" / "Aletheia" / "data" / "aletheia.db"
+    return Path.home() / ".local" / "share" / "aletheia" / "Aletheia" / "data" / "aletheia.db"
 
 
 def fetch_url(url: str, timeout: int = 30) -> bytes | None:
@@ -768,9 +768,9 @@ def rebuild_fts(conn: sqlite3.Connection) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Logos Bible Data Ingestion")
+    parser = argparse.ArgumentParser(description="Aletheia Bible Data Ingestion")
     parser.add_argument("--db-path", type=Path, default=None,
-                        help="Path to logos.db (default: platform-specific app data dir)")
+                        help="Path to aletheia.db (default: platform-specific app data dir)")
     parser.add_argument("--sample", action="store_true",
                         help="Insert sample Genesis 1 data only (for testing)")
     parser.add_argument("--kjv-only", action="store_true",

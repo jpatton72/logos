@@ -651,7 +651,7 @@ function NotesPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose: ()
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `logos-export-${new Date().toISOString().split('T')[0]}.json`;
+        a.download = `aletheia-export-${new Date().toISOString().split('T')[0]}.json`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -686,7 +686,7 @@ function NotesPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose: ()
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `logos-export-${new Date().toISOString().split('T')[0]}.csv`;
+        a.download = `aletheia-export-${new Date().toISOString().split('T')[0]}.csv`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
