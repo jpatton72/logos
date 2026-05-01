@@ -25,6 +25,9 @@ multiple English translations, with optional AI-powered assistance.
   JSON or CSV.
 - **AI assistant** — bring-your-own-key integration for OpenAI, Anthropic,
   Google AI, Groq, and Ollama. Available from the Reader and Compare pages.
+  API keys are stored in the OS credential vault (Windows Credential
+  Manager, macOS Keychain, Linux Secret Service) — never in the database
+  file or any plaintext config.
 - **Keyboard shortcuts** — press `?` inside the app for the full list.
 - **Local-first, offline-capable** — all data lives in a single SQLite
   file in your user data directory. No telemetry, no account required.
@@ -56,6 +59,15 @@ mappings from a newer release, exit the app, rename
 new installer (or just relaunch the app — the bundled DB will reseed).
 Your previous notes and bookmarks live in the backup file; copy them
 over with any SQLite tool if needed.
+
+**API key migration.** Builds before the credential-vault change kept
+API keys in the `user_preferences` table in plaintext. The first launch
+of the new build moves any existing `api_key_*` rows into the OS
+credential vault and deletes the rows. The migration is idempotent and
+silent; if the vault is unreachable (rare on Windows/macOS, possible on
+a headless Linux box without a Secret Service daemon) the rows stay put
+so you don't lose your keys. After upgrading you can verify the new
+location with `cmdkey /list | findstr /i logos` on Windows.
 
 ### Linux (build from source)
 
@@ -152,6 +164,15 @@ sudo install -Dm755 src-tauri/target/release/logos /usr/local/bin/logos
 
 The database is created at `~/.local/share/logos/Logos/data/logos.db` on
 first launch.
+
+**Secret Service daemon.** To use the AI assistant, Linux needs a
+running Secret Service provider for the OS credential vault. GNOME and
+KDE ship one by default (`gnome-keyring-daemon` / `kwalletmanager`).
+Minimal/tiling-WM setups may need to install one — KeePassXC with
+"Enable Secret Service integration" checked in its settings is the
+lightest option. Without a provider running, key saves will silently
+fail and the app will report "No API key found for provider …" when you
+try to use AI.
 
 ### macOS (build from source)
 
