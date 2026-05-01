@@ -6,14 +6,15 @@ use tracing_subscriber::fmt::format::FmtSpan;
 mod commands;
 mod database;
 pub mod ai;
+pub mod secrets;
 
 use commands::{
-    ai_chat, compare_verses, create_bookmark, create_note, delete_bookmark, delete_note,
-    export_notes_and_bookmarks, get_book_index, get_bookmarks, get_chapter, get_chapter_counts,
-    get_chapter_originals, get_ketiv_qere, get_notes, get_preference, get_reading_progress,
-    get_strongs_greek, get_strongs_hebrew, get_verse, get_verse_words, populate_terms_fts,
-    search_notes, search_terms, search_verses, set_preference, update_note,
-    update_reading_progress,
+    ai_chat, compare_verses, create_bookmark, create_note, delete_api_key, delete_bookmark,
+    delete_note, export_notes_and_bookmarks, get_book_index, get_bookmarks, get_chapter,
+    get_chapter_counts, get_chapter_originals, get_ketiv_qere, get_notes, get_preference,
+    get_reading_progress, get_strongs_greek, get_strongs_hebrew, get_verse, get_verse_words,
+    has_api_key, populate_terms_fts, search_notes, search_terms, search_verses, set_api_key,
+    set_preference, update_note, update_reading_progress,
 };
 
 pub use database::Database;
@@ -92,6 +93,11 @@ fn init_app_state() -> Result<AppState, String> {
         e.to_string()
     })?;
 
+    // Move any plaintext API keys left over from earlier builds into the
+    // OS credential vault. Best-effort: a vault outage logs but doesn't
+    // block startup.
+    secrets::migrate_api_keys_from_preferences(&db);
+
     let http = ai::build_http_client().map_err(|e| {
         error!("Failed to build HTTP client: {}", e);
         e.to_string()
@@ -144,6 +150,9 @@ pub fn run() {
             compare_verses,
             populate_terms_fts,
             ai_chat,
+            set_api_key,
+            has_api_key,
+            delete_api_key,
             get_reading_progress,
             update_reading_progress,
         ])

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { getPreference } from '../lib/tauri';
+import { getPreference, hasApiKey } from '../lib/tauri';
 import { aiChat, ChatMessage } from '../lib/ai';
 import { defaultModelFor } from '../lib/aiModels';
 
@@ -100,9 +100,12 @@ export function AiPanel({ verses = [], wordContext, onClose, onDeselectAll }: Ai
         return;
       }
 
-      const apiKey = await getPreference(`api_key_${providerPref}`);
+      // Probe whether a key is saved without round-tripping the cleartext
+      // through the renderer; the backend ai_chat command pulls the
+      // actual value straight from the OS credential vault.
+      const keyPresent = await hasApiKey(providerPref);
       // Ollama is local and may not require a key, so we don't pre-flight it.
-      if (providerPref !== 'ollama' && !apiKey) {
+      if (providerPref !== 'ollama' && !keyPresent) {
         setMessages((prev) => [
           ...prev,
           {

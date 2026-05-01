@@ -918,6 +918,25 @@ pub fn set_preference(db: &Database, key: &str, value: &str) -> SqliteResult<()>
     Ok(())
 }
 
+/// Returns every preference whose key starts with `prefix`. Used by the
+/// startup keyring migration to drain `api_key_*` rows out of the
+/// preferences table after copying them into the OS credential vault.
+pub fn list_preferences_with_prefix(db: &Database, prefix: &str) -> SqliteResult<Vec<(String, String)>> {
+    let conn = db.conn.lock().unwrap();
+    let mut stmt = conn.prepare("SELECT key, value FROM user_preferences WHERE key LIKE ?1")?;
+    let pattern = format!("{}%", prefix);
+    let rows = stmt
+        .query_map(params![pattern], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+pub fn delete_preference(db: &Database, key: &str) -> SqliteResult<()> {
+    let conn = db.conn.lock().unwrap();
+    conn.execute("DELETE FROM user_preferences WHERE key = ?", params![key])?;
+    Ok(())
+}
+
 // ============================================================================
 // Compare Verses
 // ============================================================================

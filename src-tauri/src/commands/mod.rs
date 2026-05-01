@@ -19,4 +19,4 @@ pub use progress::{get_reading_progress, update_reading_progress};
 pub use search::{search_terms, search_verses};
 pub use verses::{compare_verses, get_book_index, get_chapter, get_chapter_counts, get_chapter_originals, get_ketiv_qere, get_verse};
 
-pub use ai::ai_chat;
+pub use ai::{ai_chat, delete_api_key, has_api_key, set_api_key};

@@ -402,6 +402,31 @@ export async function setPreference(key: string, value: string): Promise<void> {
 }
 
 // ============================================================================
+// API Key (OS Credential Vault) Commands
+// ============================================================================
+//
+// API keys are stored in the OS credential vault (Windows Credential Manager
+// / macOS Keychain / Linux Secret Service), never in the SQLite preferences
+// table. The renderer process never reads back the cleartext value — only
+// `hasApiKey` to decide whether to render a "saved" placeholder.
+
+/** Stores or replaces the API key for `provider`. Saving an empty string
+ *  deletes any existing entry. */
+export async function setApiKey(provider: string, key: string): Promise<void> {
+  return invoke<void>("set_api_key", { provider, key });
+}
+
+/** `true` if a non-empty key is stored for `provider`. */
+export async function hasApiKey(provider: string): Promise<boolean> {
+  return invoke<boolean>("has_api_key", { provider });
+}
+
+/** Removes the stored API key for `provider`, if any. Idempotent. */
+export async function deleteApiKey(provider: string): Promise<void> {
+  return invoke<void>("delete_api_key", { provider });
+}
+
+// ============================================================================
 // Progress Commands
 // ============================================================================
 

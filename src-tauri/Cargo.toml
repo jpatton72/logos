@@ -29,3 +29,8 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 directories = "5"
 dirs = "6"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+# OS-native credential vault (Windows Credential Manager / macOS Keychain
+# / Linux Secret Service). API keys live here instead of the SQLite
+# preferences table so they aren't readable from raw DB backups. v3
+# requires explicit platform features — defaults are mock-only.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }

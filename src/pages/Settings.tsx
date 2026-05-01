@@ -1,12 +1,20 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { getPreference, setPreference } from '../lib/tauri';
+import { getPreference, setPreference, setApiKey, hasApiKey } from '../lib/tauri';
 import { type AiProvider, PROVIDER_LABELS, PROVIDER_MODELS, defaultModelFor } from '../lib/aiModels';
+
+const ALL_PROVIDERS: AiProvider[] = ['openai', 'anthropic', 'google', 'groq', 'ollama'];
 
 export default function Settings() {
   const { darkMode, toggleDarkMode, fontSize, setFontSize } = useAppStore();
 
-  // AI settings state
+  // AI settings state. `apiKeys` holds only what the user has just typed
+  // in this session — saved keys live in the OS credential vault and are
+  // never read back into the renderer (the vault returns the cleartext
+  // each time, but pulling it through JS just to repopulate the input is
+  // an unnecessary leak surface). `savedKeys` tracks which providers
+  // already have a key in the vault so we can render a "Saved" indicator
+  // and a meaningful placeholder.
   const [provider, setProvider] = useState<AiProvider>('openai');
   const [model, setModel] = useState<string>(defaultModelFor('openai'));
   const [apiKeys, setApiKeys] = useState<Record<AiProvider, string>>({
@@ -15,6 +23,13 @@ export default function Settings() {
     google: '',
     groq: '',
     ollama: '',
+  });
+  const [savedKeys, setSavedKeys] = useState<Record<AiProvider, boolean>>({
+    openai: false,
+    anthropic: false,
+    google: false,
+    groq: false,
+    ollama: false,
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -32,16 +47,13 @@ export default function Settings() {
           : 'openai';
       setProvider(resolvedProvider);
       setModel(savedModel && savedModel.trim() !== '' ? savedModel : defaultModelFor(resolvedProvider));
-      // Load API keys
-      const providers: AiProvider[] = ['openai', 'anthropic', 'google', 'groq', 'ollama'];
-      const results = await Promise.all(
-        providers.map((p) => getPreference(`api_key_${p}`))
-      );
-      setApiKeys(
-        providers.reduce((acc, p, i) => {
-          acc[p] = results[i] ?? '';
+      // Probe which providers already have a key stored in the vault.
+      const flags = await Promise.all(ALL_PROVIDERS.map((p) => hasApiKey(p)));
+      setSavedKeys(
+        ALL_PROVIDERS.reduce((acc, p, i) => {
+          acc[p] = flags[i];
           return acc;
-        }, {} as Record<AiProvider, string>)
+        }, {} as Record<AiProvider, boolean>)
       );
     })();
   }, []);
@@ -56,15 +68,27 @@ export default function Settings() {
     setSaved(false);
     try {
       const resolvedModel = model.trim() === '' ? defaultModelFor(provider) : model.trim();
+      // Only push API keys the user actually edited this session — empty
+      // inputs leave the existing vault entry alone instead of clearing
+      // it. Users can clear a key explicitly via the "Clear" button.
+      const keyWrites = ALL_PROVIDERS
+        .filter((p) => apiKeys[p] !== '')
+        .map((p) => setApiKey(p, apiKeys[p]));
       await Promise.all([
         setPreference('ai_provider', provider),
         setPreference('ai_model', resolvedModel),
-        setPreference('api_key_openai', apiKeys.openai),
-        setPreference('api_key_anthropic', apiKeys.anthropic),
-        setPreference('api_key_google', apiKeys.google),
-        setPreference('api_key_groq', apiKeys.groq),
-        setPreference('api_key_ollama', apiKeys.ollama),
+        ...keyWrites,
       ]);
+      // Reflect new vault state and clear the inputs so the cleartext
+      // doesn't linger in form state.
+      setSavedKeys((prev) => {
+        const next = { ...prev };
+        for (const p of ALL_PROVIDERS) {
+          if (apiKeys[p] !== '') next[p] = true;
+        }
+        return next;
+      });
+      setApiKeys({ openai: '', anthropic: '', google: '', groq: '', ollama: '' });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
@@ -185,14 +209,32 @@ export default function Settings() {
           </p>
         </div>
 
-        {/* API Key inputs */}
+        {/* API Key inputs. Stored in the OS credential vault, never the
+            DB. Inputs start blank on every visit; "Saved" means a key
+            already lives in the vault, "Not set" means none does. */}
         <div style={{ marginBottom: '1rem' }}>
-          <label style={labelStyle}>{PROVIDER_LABELS[provider]} API Key</label>
+          <label style={labelStyle}>
+            {PROVIDER_LABELS[provider]} API Key
+            <span
+              style={{
+                marginLeft: '0.5rem',
+                fontSize: '0.65rem',
+                fontWeight: 600,
+                color: savedKeys[provider] ? '#15803d' : (darkMode ? '#78716c' : '#a8a29e'),
+              }}
+            >
+              {savedKeys[provider] ? '● Saved' : '○ Not set'}
+            </span>
+          </label>
           <input
             type="password"
-            placeholder="sk-…"
+            placeholder={savedKeys[provider] ? 'Stored — type to replace' : 'sk-…'}
             value={apiKeys[provider]}
             onChange={(e) => setApiKeys((prev) => ({ ...prev, [provider]: e.target.value }))}
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
+            autoComplete="off"
             style={inputStyle}
           />
         </div>
@@ -205,12 +247,28 @@ export default function Settings() {
           <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {(['anthropic', 'google', 'groq', 'ollama'] as AiProvider[]).map((p) => (
               <div key={p}>
-                <label style={labelStyle}>{PROVIDER_LABELS[p]} API Key</label>
+                <label style={labelStyle}>
+                  {PROVIDER_LABELS[p]} API Key
+                  <span
+                    style={{
+                      marginLeft: '0.5rem',
+                      fontSize: '0.65rem',
+                      fontWeight: 600,
+                      color: savedKeys[p] ? '#15803d' : (darkMode ? '#78716c' : '#a8a29e'),
+                    }}
+                  >
+                    {savedKeys[p] ? '● Saved' : '○ Not set'}
+                  </span>
+                </label>
                 <input
                   type="password"
-                  placeholder="sk-…"
+                  placeholder={savedKeys[p] ? 'Stored — type to replace' : 'sk-…'}
                   value={apiKeys[p]}
                   onChange={(e) => setApiKeys((prev) => ({ ...prev, [p]: e.target.value }))}
+                  spellCheck={false}
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  autoComplete="off"
                   style={inputStyle}
                 />
               </div>
