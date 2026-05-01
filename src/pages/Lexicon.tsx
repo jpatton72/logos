@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { getStrongsGreek, getStrongsHebrew, getChapterOriginals } from '../lib/tauri';
 import type { WordMapping, StrongsGreek, StrongsHebrew, VerseWithWords } from '../lib/tauri';
+import { useFocusTrap } from '../lib/useFocusTrap';
 import {
   parseGreekMorphology,
   parseHebrewMorphology,
@@ -37,6 +38,7 @@ function WordDetail({ word, strongsEntry, darkMode, onClose }: WordDetailProps) 
   const isHebrew = word.language === 'hebrew';
   const morphParts = isHebrew ? parseHebrewMorphology(word.morphology ?? '') : parseGreekMorphology(word.morphology ?? '');
   const morphLabel = formatMorphologyParts(morphParts);
+  const trapRef = useFocusTrap<HTMLDivElement>();
 
   return (
     <div
@@ -48,6 +50,7 @@ function WordDetail({ word, strongsEntry, darkMode, onClose }: WordDetailProps) 
       style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
     >
       <div
+        ref={trapRef}
         onClick={(e) => e.stopPropagation()}
         style={{
           backgroundColor: darkMode ? '#252519' : '#ffffff',

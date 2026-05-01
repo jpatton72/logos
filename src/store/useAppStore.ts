@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Book } from '../lib/tauri';
-import { getBookIndex } from '../lib/tauri';
+import { getBookIndex, getChapterCounts } from '../lib/tauri';
 
 // A canonical reference to a single verse. `book` is the lower-cased
 // abbreviation (e.g. "gen", "matt") to match the way `currentBook` is stored.
@@ -57,6 +57,9 @@ interface AppState {
   // Doesn't need to be persisted: the data is static and ships with the
   // bundled DB, so a single Tauri IPC call per app session is enough.
   books: Book[];
+  // Cached chapter-count map (`abbreviation` -> max chapter), populated
+  // once via ensureChapterCounts(). Same lifetime semantics as `books`.
+  chapterCounts: Record<string, number>;
   // Actions
   setBook: (book: string) => void;
   setChapter: (chapter: number) => void;
@@ -64,6 +67,7 @@ interface AppState {
   extendVerseSelection: (ref: VerseRef) => void;
   clearVerseSelection: () => void;
   ensureBooks: () => Promise<Book[]>;
+  ensureChapterCounts: () => Promise<Record<string, number>>;
   addTranslation: (trans: string) => void;
   removeTranslation: (trans: string) => void;
   setActiveTranslations: (translations: string[]) => void;
@@ -81,6 +85,7 @@ interface AppState {
 // Module-level singleton for an in-flight ensureBooks() call. Lives outside
 // the store so it doesn't get serialized/persisted.
 let _booksPromise: Promise<Book[]> | null = null;
+let _chapterCountsPromise: Promise<Record<string, number>> | null = null;
 
 export const useAppStore = create<AppState>()(
   persist(
@@ -95,6 +100,7 @@ export const useAppStore = create<AppState>()(
       notes: [],
       fontSize: 18,
       books: [],
+      chapterCounts: {},
 
       // Navigation does NOT clear the verse selection — the whole point of
       // the persistent selection is to let the user gather verses from
@@ -166,6 +172,21 @@ export const useAppStore = create<AppState>()(
           }
         })();
         return _booksPromise;
+      },
+      ensureChapterCounts: async (): Promise<Record<string, number>> => {
+        const cached = get().chapterCounts;
+        if (Object.keys(cached).length > 0) return cached;
+        if (_chapterCountsPromise) return _chapterCountsPromise;
+        _chapterCountsPromise = (async () => {
+          try {
+            const counts = await getChapterCounts();
+            set({ chapterCounts: counts });
+            return counts;
+          } finally {
+            _chapterCountsPromise = null;
+          }
+        })();
+        return _chapterCountsPromise;
       },
       addTranslation: (trans) =>
         set((s) =>

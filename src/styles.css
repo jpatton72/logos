@@ -206,3 +206,16 @@ html.dark .modal-panel {
 html.dark .search-highlight {
   background-color: #78350f80;
 }
+
+/* Honor the OS-level "reduce motion" preference. Disables transitions and
+ * animations across both stylesheet rules and inline-styled elements
+ * (Compare/Lexicon/Sidebar/etc.) so users who set this for vestibular or
+ * attention reasons aren't subjected to spinners, pulses, or hover slides. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

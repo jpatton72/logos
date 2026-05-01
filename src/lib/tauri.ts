@@ -209,6 +209,13 @@ export async function getBookIndex(): Promise<Book[]> {
   return invoke<Book[]>("get_book_index");
 }
 
+/** Returns `{ abbreviation: max_chapter }` for every book that has verses
+ *  loaded. Cached on the frontend so chapter counts always match the DB
+ *  rather than a hand-maintained constant. */
+export async function getChapterCounts(): Promise<Record<string, number>> {
+  return invoke<Record<string, number>>("get_chapter_counts");
+}
+
 export async function compareVerses(
   book: string,
   chapter: number,
@@ -274,8 +281,19 @@ export async function createBookmark(
   });
 }
 
-export async function getBookmarks(): Promise<BookmarkWithVerse[]> {
-  return invoke<BookmarkWithVerse[]>("get_bookmarks");
+export interface PaginatedBookmarks {
+  items: BookmarkWithVerse[];
+  total: number;
+}
+
+export async function getBookmarks(
+  limit?: number,
+  offset?: number,
+): Promise<PaginatedBookmarks> {
+  return invoke<PaginatedBookmarks>("get_bookmarks", {
+    limit: limit ?? null,
+    offset: offset ?? null,
+  });
 }
 
 export async function deleteBookmark(id: number): Promise<void> {
@@ -300,8 +318,21 @@ export async function createNote(
   });
 }
 
-export async function getNotes(verseId?: number): Promise<Note[]> {
-  return invoke<Note[]>("get_notes", { verseId: verseId ?? null });
+export interface PaginatedNotes {
+  items: Note[];
+  total: number;
+}
+
+export async function getNotes(
+  verseId?: number,
+  limit?: number,
+  offset?: number,
+): Promise<PaginatedNotes> {
+  return invoke<PaginatedNotes>("get_notes", {
+    verseId: verseId ?? null,
+    limit: limit ?? null,
+    offset: offset ?? null,
+  });
 }
 
 export async function updateNote(

@@ -14,13 +14,19 @@ import { AiPanel, type WordContext } from './components/AiPanel';
 import { StrongsSidebar } from './components/StrongsSidebar';
 import type { BookmarkWithVerse, Note as TauriNote } from './lib/tauri';
 import { exportNotesAndBookmarks } from './lib/tauri';
+import { useFocusTrap } from './lib/useFocusTrap';
 
 const ORIGINAL_LANG_CODES = new Set(['wlc', 'sblgnt', 'oshb']);
 
 function AppInner() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { darkMode, setSidebarOpen, currentBook, currentChapter, selectedVerses, bookmarks, activeTranslations } = useAppStore();
+  const { darkMode, setSidebarOpen, currentBook, currentChapter, selectedVerses, bookmarks, activeTranslations, chapterCounts, ensureChapterCounts, ensureBooks } = useAppStore();
+
+  useEffect(() => {
+    ensureChapterCounts().catch((e) => console.error('Failed to load chapter counts:', e));
+    ensureBooks().catch((e) => console.error('Failed to load book index:', e));
+  }, [ensureChapterCounts, ensureBooks]);
   const [showSettings, setShowSettings] = useState(false);
   const [showBookmarks, setShowBookmarks] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
@@ -93,8 +99,14 @@ function AppInner() {
     return null;
   })();
 
-  // Get chapter verse counts
-  const chapterCounts: Record<string, number> = { gen: 50, exod: 40, lev: 27, num: 36, deut: 34, josh: 24, judg: 21, ruth: 4, '1sam': 31, '2sam': 24, '1kgs': 22, '2kgs': 25, '1chr': 29, '2chr': 36, ezra: 10, neh: 13, est: 10, job: 42, ps: 150, prov: 31, eccl: 12, song: 8, isa: 66, jer: 52, lam: 5, ezek: 48, dan: 12, hosea: 14, joel: 3, amos: 9, obad: 1, jonah: 4, mic: 7, nah: 3, hab: 3, zeph: 3, hag: 2, zech: 14, mal: 4, matt: 28, mark: 16, luke: 24, john: 21, acts: 28, rom: 16, '1cor': 16, '2cor': 13, gal: 6, eph: 6, phil: 4, col: 4, '1thess': 5, '2thess': 3, '1tim': 6, '2tim': 4, titus: 3, phlm: 1, heb: 13, jas: 5, '1pet': 5, '2pet': 3, '1john': 5, '2john': 1, '3john': 1, jude: 1, rev: 22, '1esd': 9, '2esd': 16, tob: 14, jdt: 16, esthg: 10, wis: 19, sir: 51, bar: 5, epjer: 1, prazar: 1, sus: 1, bel: 1, prman: 1, '1macc': 16, '2macc': 15 };
+  // Book-order list comes from the cached book index — falls back to the
+  // current book if the index hasn't loaded yet, so chapter-arrow nav
+  // simply no-ops at chapter boundaries during the brief startup window.
+  const orderedBookKeys = (): string[] => {
+    const books = useAppStore.getState().books;
+    if (books.length > 0) return books.map((b) => b.abbreviation.toLowerCase());
+    return [currentBook.toLowerCase()];
+  };
 
   const handleNextChapter = () => {
     const key = currentBook.toLowerCase();
@@ -102,7 +114,7 @@ function AppInner() {
     if (currentChapter < count) {
       useAppStore.getState().setChapter(currentChapter + 1);
     } else {
-      const books = ['gen', 'exod', 'lev', 'num', 'deut', 'josh', 'judg', 'ruth', '1sam', '2sam', '1kgs', '2kgs', '1chr', '2chr', 'ezra', 'neh', 'est', 'job', 'ps', 'prov', 'eccl', 'song', 'isa', 'jer', 'lam', 'ezek', 'dan', 'hosea', 'joel', 'amos', 'obad', 'jonah', 'mic', 'nah', 'hab', 'zeph', 'hag', 'zech', 'mal', 'matt', 'mark', 'luke', 'john', 'acts', 'rom', '1cor', '2cor', 'gal', 'eph', 'phil', 'col', '1thess', '2thess', '1tim', '2tim', 'titus', 'phlm', 'heb', 'jas', '1pet', '2pet', '1john', '2john', '3john', 'jude', 'rev', '1esd', '2esd', 'tob', 'jdt', 'esthg', 'wis', 'sir', 'bar', 'epjer', 'prazar', 'sus', 'bel', 'prman', '1macc', '2macc'];
+      const books = orderedBookKeys();
       const idx = books.indexOf(key);
       if (idx >= 0 && idx < books.length - 1) {
         useAppStore.getState().setBook(books[idx + 1]);
@@ -117,13 +129,12 @@ function AppInner() {
     if (currentChapter > 1) {
       useAppStore.getState().setChapter(currentChapter - 1);
     } else {
-      const books = ['gen', 'exod', 'lev', 'num', 'deut', 'josh', 'judg', 'ruth', '1sam', '2sam', '1kgs', '2kgs', '1chr', '2chr', 'ezra', 'neh', 'est', 'job', 'ps', 'prov', 'eccl', 'song', 'isa', 'jer', 'lam', 'ezek', 'dan', 'hosea', 'joel', 'amos', 'obad', 'jonah', 'mic', 'nah', 'hab', 'zeph', 'hag', 'zech', 'mal', 'matt', 'mark', 'luke', 'john', 'acts', 'rom', '1cor', '2cor', 'gal', 'eph', 'phil', 'col', '1thess', '2thess', '1tim', '2tim', 'titus', 'phlm', 'heb', 'jas', '1pet', '2pet', '1john', '2john', '3john', 'jude', 'rev', '1esd', '2esd', 'tob', 'jdt', 'esthg', 'wis', 'sir', 'bar', 'epjer', 'prazar', 'sus', 'bel', 'prman', '1macc', '2macc'];
+      const books = orderedBookKeys();
       const idx = books.indexOf(key);
       if (idx > 0) {
         const prevBook = books[idx - 1];
-        const prevCounts: Record<string, number> = chapterCounts;
         useAppStore.getState().setBook(prevBook);
-        useAppStore.getState().setChapter(prevCounts[prevBook] || 1);
+        useAppStore.getState().setChapter(chapterCounts[prevBook] || 1);
       }
     }
   };
@@ -337,17 +348,26 @@ function AppInner() {
 
         {/* Keyboard Shortcuts Help Modal */}
         {showKeyboardHelp && (
+          <KeyboardHelpModal darkMode={darkMode} onClose={() => setShowKeyboardHelp(false)} />
+        )}
+    </div>
+  );
+}
+
+function KeyboardHelpModal({ darkMode, onClose }: { darkMode: boolean; onClose: () => void }) {
+  const trapRef = useFocusTrap<HTMLDivElement>();
+  return (
           <div
             className="modal-backdrop"
-            onClick={() => setShowKeyboardHelp(false)}
+            onClick={onClose}
             role="dialog"
             aria-modal="true"
             aria-labelledby="modal-keyboard-help-title"
           >
-            <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '24rem' }}>
+            <div ref={trapRef} className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '24rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                 <h2 id="modal-keyboard-help-title" style={{ margin: 0, fontWeight: 700 }}>Keyboard Shortcuts</h2>
-                <button onClick={() => setShowKeyboardHelp(false)} aria-label="Close keyboard shortcuts help" style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
+                <button onClick={onClose} aria-label="Close keyboard shortcuts help" style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                 </button>
               </div>
@@ -385,8 +405,6 @@ function AppInner() {
               </div>
             </div>
           </div>
-        )}
-    </div>
   );
 }
 
@@ -402,6 +420,7 @@ export default function App() {
 function SettingsModal({ darkMode, onClose }: { darkMode: boolean; onClose: () => void }) {
   const navigate = useNavigate();
   const { fontSize, setFontSize, toggleDarkMode } = useAppStore();
+  const trapRef = useFocusTrap<HTMLDivElement>();
   return (
     <div
       className="modal-backdrop"
@@ -410,7 +429,7 @@ function SettingsModal({ darkMode, onClose }: { darkMode: boolean; onClose: () =
       aria-modal="true"
       aria-labelledby="modal-settings-title"
     >
-      <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '28rem' }}>
+      <div ref={trapRef} className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '28rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
           <h2 id="modal-settings-title" style={{ margin: 0, fontWeight: 700 }}>Settings</h2>
           <button onClick={onClose} aria-label="Close settings" style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
@@ -451,36 +470,50 @@ function SettingsModal({ darkMode, onClose }: { darkMode: boolean; onClose: () =
   );
 }
 
+const BOOKMARKS_PAGE = 100;
+const NOTES_PAGE = 100;
+
 function BookmarkPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose: () => void }) {
   const [bookmarks, setBookmarks] = useState<BookmarkWithVerse[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const trapRef = useFocusTrap<HTMLDivElement>();
 
-  const fetchBookmarks = async () => {
+  const fetchPage = async (offset: number, replace: boolean) => {
     try {
-      setLoading(true);
+      if (replace) setLoading(true);
+      else setLoadingMore(true);
       setError(null);
-      const data = await getBookmarks();
-      setBookmarks(data);
+      const data = await getBookmarks(BOOKMARKS_PAGE, offset);
+      setTotal(data.total);
+      setBookmarks((prev) => (replace ? data.items : [...prev, ...data.items]));
     } catch (e) {
       setError('Failed to load bookmarks.');
       console.error(e);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
-  useEffect(() => { fetchBookmarks(); }, []);
+  useEffect(() => { fetchPage(0, true); }, []);
 
   const handleDelete = async (id: number) => {
     try {
       await deleteBookmark(id);
       useAppStore.getState().removeBookmark(id);
-      await fetchBookmarks();
+      // Optimistic local removal — saves a round-trip and avoids
+      // resetting the user's scroll position back to the top.
+      setBookmarks((prev) => prev.filter((b) => b.id !== id));
+      setTotal((t) => Math.max(0, t - 1));
     } catch (e) {
       console.error('Failed to delete bookmark:', e);
     }
   };
+
+  const hasMore = bookmarks.length < total;
 
   return (
     <div
@@ -490,9 +523,11 @@ function BookmarkPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose:
       aria-modal="true"
       aria-labelledby="modal-bookmarks-title"
     >
-      <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '28rem', maxHeight: '80vh' }}>
+      <div ref={trapRef} className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '28rem', maxHeight: '80vh' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h2 id="modal-bookmarks-title" style={{ margin: 0, fontWeight: 700 }}>Bookmarks ({bookmarks.length})</h2>
+          <h2 id="modal-bookmarks-title" style={{ margin: 0, fontWeight: 700 }}>
+            Bookmarks ({bookmarks.length}{hasMore ? ` of ${total}` : ''})
+          </h2>
           <button onClick={onClose} aria-label="Close bookmarks" style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
@@ -515,6 +550,24 @@ function BookmarkPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose:
                 <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: darkMode ? '#a8a29e' : '#78716c', fontFamily: "'Lora', serif" }}>{bm.verse.text.slice(0, 100)}</p>
               </div>
             ))}
+            {hasMore && (
+              <button
+                onClick={() => fetchPage(bookmarks.length, false)}
+                disabled={loadingMore}
+                style={{
+                  marginTop: '0.5rem',
+                  padding: '0.5rem 0.75rem',
+                  borderRadius: '8px',
+                  border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}`,
+                  backgroundColor: 'transparent',
+                  color: darkMode ? '#a8a29e' : '#78716c',
+                  cursor: loadingMore ? 'wait' : 'pointer',
+                  fontSize: '0.8rem',
+                }}
+              >
+                {loadingMore ? 'Loading…' : `Load more (${total - bookmarks.length} remaining)`}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -524,33 +577,42 @@ function BookmarkPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose:
 
 function NotesPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose: () => void }) {
   const [notes, setNotes] = useState<TauriNote[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingNote, setEditingNote] = useState<TauriNote | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const trapRef = useFocusTrap<HTMLDivElement>();
 
-  const fetchNotes = async () => {
+  const fetchPage = async (offset: number, replace: boolean) => {
     try {
-      setLoading(true);
+      if (replace) setLoading(true);
+      else setLoadingMore(true);
       setError(null);
-      const data = await getNotes();
-      setNotes(data);
+      const data = await getNotes(undefined, NOTES_PAGE, offset);
+      setTotal(data.total);
+      setNotes((prev) => (replace ? data.items : [...prev, ...data.items]));
     } catch (e) {
       setError('Failed to load notes.');
       console.error(e);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
-  useEffect(() => { fetchNotes(); }, []);
+  useEffect(() => { fetchPage(0, true); }, []);
 
   const handleDelete = async (id: number) => {
     try {
       await deleteNote(id);
+      // Optimistic local removal — saves a round-trip and avoids
+      // resetting the user's scroll position back to the top.
       setNotes((prev) => prev.filter((n) => n.id !== id));
+      setTotal((t) => Math.max(0, t - 1));
     } catch (e) {
       console.error('Failed to delete note:', e);
     }
@@ -562,6 +624,7 @@ function NotesPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose: ()
       setEditingNote(null);
     } else {
       setNotes((prev) => [saved, ...prev]);
+      setTotal((t) => t + 1);
       setShowCreateForm(false);
     }
   };
@@ -645,7 +708,7 @@ function NotesPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose: ()
         aria-modal="true"
         aria-labelledby="modal-note-form-title"
       >
-        <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '32rem' }}>
+        <div ref={trapRef} className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '32rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <h2 id="modal-note-form-title" style={{ margin: 0, fontWeight: 700 }}>{editingNote ? 'Edit Note' : 'New Note'}</h2>
             <button onClick={() => { setShowCreateForm(false); setEditingNote(null); }} aria-label="Close note form" style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
@@ -671,9 +734,11 @@ function NotesPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose: ()
       aria-modal="true"
       aria-labelledby="modal-notes-title"
     >
-      <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '32rem', maxHeight: '80vh' }}>
+      <div ref={trapRef} className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '32rem', maxHeight: '80vh' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h2 id="modal-notes-title" style={{ margin: 0, fontWeight: 700 }}>Notes ({filteredNotes.length}{searchQuery ? ` of ${notes.length}` : ''})</h2>
+          <h2 id="modal-notes-title" style={{ margin: 0, fontWeight: 700 }}>
+            Notes ({searchQuery ? `${filteredNotes.length} of ${notes.length}` : `${notes.length}${notes.length < total ? ` of ${total}` : ''}`})
+          </h2>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             {/* Export dropdown */}
             <div style={{ position: 'relative' }}>
@@ -795,6 +860,24 @@ function NotesPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose: ()
                 )}
               </div>
             ))}
+            {!searchQuery && notes.length < total && (
+              <button
+                onClick={() => fetchPage(notes.length, false)}
+                disabled={loadingMore}
+                style={{
+                  marginTop: '0.5rem',
+                  padding: '0.5rem 0.75rem',
+                  borderRadius: '8px',
+                  border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}`,
+                  backgroundColor: 'transparent',
+                  color: darkMode ? '#a8a29e' : '#78716c',
+                  cursor: loadingMore ? 'wait' : 'pointer',
+                  fontSize: '0.8rem',
+                }}
+              >
+                {loadingMore ? 'Loading…' : `Load more (${total - notes.length} remaining)`}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -806,6 +889,7 @@ function StrongsPopupModal({ data, darkMode, onClose, onOpenAi }: { data: { word
   const [loading, setLoading] = useState(true);
   const [entry, setEntry] = useState<import('./lib/tauri').StrongsHebrew | import('./lib/tauri').StrongsGreek | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const trapRef = useFocusTrap<HTMLDivElement>();
 
   useEffect(() => {
     let cancelled = false;
@@ -835,7 +919,7 @@ function StrongsPopupModal({ data, darkMode, onClose, onOpenAi }: { data: { word
       aria-modal="true"
       aria-labelledby="modal-strongs-title"
     >
-      <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '28rem' }}>
+      <div ref={trapRef} className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '28rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
           <h2 id="modal-strongs-title" style={{ margin: 0, fontWeight: 700, fontFamily: data.language === 'hebrew' ? "'Noto Serif Hebrew', serif" : "'Noto Serif', serif", fontSize: '1.5rem', color: data.language === 'hebrew' ? '#15803d' : '#1d4ed8' }}>
             {loading ? '…' : entry ? entry.word : data.word}

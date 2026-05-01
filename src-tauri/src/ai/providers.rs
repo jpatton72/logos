@@ -209,10 +209,20 @@ impl Provider for AnthropicProvider {
             }
         }
 
+        // Anthropic's Messages API requires max_tokens. 4096 fits every
+        // current Claude model's output ceiling and is plenty for the
+        // study/lookup chats this app issues. Power users with extended
+        // workflows can override via LOGOS_AI_MAX_TOKENS — invalid values
+        // fall back to the default rather than failing the request.
+        let max_tokens: u32 = std::env::var("LOGOS_AI_MAX_TOKENS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .filter(|n: &u32| *n > 0)
+            .unwrap_or(4096);
         let mut payload = serde_json::json!({
             "model": model,
             "messages": conversation,
-            "max_tokens": 4096,
+            "max_tokens": max_tokens,
         });
         if !system_parts.is_empty() {
             payload["system"] = serde_json::Value::String(system_parts.join("\n\n"));

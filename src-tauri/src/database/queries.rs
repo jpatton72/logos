@@ -216,6 +216,25 @@ pub fn get_all_books(db: &Database) -> SqliteResult<Vec<Book>> {
     Ok(books)
 }
 
+/// Returns (lowercase abbreviation, max chapter) pairs for every book that
+/// has at least one verse loaded. The frontend uses this to size chapter
+/// dropdowns and decide when chapter-arrow navigation should roll over to
+/// the next book — replacing a hand-maintained map that drifted from the
+/// DB whenever a translation was added or removed.
+pub fn get_chapter_counts(db: &Database) -> SqliteResult<Vec<(String, i32)>> {
+    let conn = db.conn.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT LOWER(b.abbreviation), MAX(v.chapter)
+         FROM verses v
+         JOIN books b ON v.book_id = b.id
+         GROUP BY b.id
+         ORDER BY b.order_index"
+    )?;
+    let rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
 #[allow(dead_code)] // Helper kept for future commands; not currently invoked from Tauri.
 pub fn get_book_by_abbreviation(db: &Database, abbreviation: &str) -> SqliteResult<Option<Book>> {
     let conn = db.conn.lock().unwrap();
@@ -534,8 +553,16 @@ pub fn create_bookmark(db: &Database, verse_id: i64, label: Option<&str>) -> Sql
     Ok(bookmark)
 }
 
-pub fn get_all_bookmarks(db: &Database) -> SqliteResult<Vec<BookmarkWithVerse>> {
+pub fn get_all_bookmarks(
+    db: &Database,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> SqliteResult<Vec<BookmarkWithVerse>> {
     let conn = db.conn.lock().unwrap();
+    // None / 0 means "no limit" so existing callers (the export command,
+    // anything that needs the full set) keep working.
+    let lim: i64 = limit.filter(|n| *n > 0).map(|n| n as i64).unwrap_or(-1);
+    let off: i64 = offset.unwrap_or(0) as i64;
     let mut stmt = conn.prepare(
         "SELECT b.id, b.verse_id, b.label, b.created_at,
                 v.id, v.book_id, bn.abbreviation, v.chapter, v.verse_num,
@@ -544,29 +571,37 @@ pub fn get_all_bookmarks(db: &Database) -> SqliteResult<Vec<BookmarkWithVerse>> 
          JOIN verses v ON b.verse_id = v.id
          JOIN books bn ON v.book_id = bn.id
          JOIN translations t ON v.translation_id = t.id
-         ORDER BY b.created_at DESC"
+         ORDER BY b.created_at DESC
+         LIMIT ? OFFSET ?",
     )?;
 
-    let bookmarks = stmt.query_map([], |row| {
-        Ok(BookmarkWithVerse {
-            id: row.get(0)?,
-            verse_id: row.get(1)?,
-            label: row.get(2)?,
-            created_at: row.get(3)?,
-            verse: BookmarkVerseSummary {
-                id: row.get(4)?,
-                book_id: row.get(5)?,
-                book_abbreviation: row.get(6)?,
-                chapter: row.get(7)?,
-                verse_num: row.get(8)?,
-                translation_id: row.get(9)?,
-                translation_abbreviation: row.get(10)?,
-                text: row.get(11)?,
-            },
-        })
-    })?.collect::<Result<Vec<_>, _>>()?;
+    let bookmarks = stmt
+        .query_map(params![lim, off], |row| {
+            Ok(BookmarkWithVerse {
+                id: row.get(0)?,
+                verse_id: row.get(1)?,
+                label: row.get(2)?,
+                created_at: row.get(3)?,
+                verse: BookmarkVerseSummary {
+                    id: row.get(4)?,
+                    book_id: row.get(5)?,
+                    book_abbreviation: row.get(6)?,
+                    chapter: row.get(7)?,
+                    verse_num: row.get(8)?,
+                    translation_id: row.get(9)?,
+                    translation_abbreviation: row.get(10)?,
+                    text: row.get(11)?,
+                },
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(bookmarks)
+}
+
+pub fn count_bookmarks(db: &Database) -> SqliteResult<i64> {
+    let conn = db.conn.lock().unwrap();
+    conn.query_row("SELECT COUNT(*) FROM bookmarks", [], |r| r.get(0))
 }
 
 pub fn delete_bookmark(db: &Database, id: i64) -> SqliteResult<()> {
@@ -605,26 +640,36 @@ pub fn create_note(db: &Database, verse_id: Option<i64>, title: Option<&str>, co
     Ok(note)
 }
 
-pub fn get_notes(db: &Database, verse_id: Option<i64>) -> SqliteResult<Vec<Note>> {
+pub fn get_notes(
+    db: &Database,
+    verse_id: Option<i64>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> SqliteResult<Vec<Note>> {
     let conn = db.conn.lock().unwrap();
-    
+
+    let lim: i64 = limit.filter(|n| *n > 0).map(|n| n as i64).unwrap_or(-1);
+    let off: i64 = offset.unwrap_or(0) as i64;
+
     let (sql, params_vec): (String, Vec<Box<dyn rusqlite::ToSql>>) = if let Some(vid) = verse_id {
         (
-            "SELECT id, verse_id, title, content, tags, created_at, updated_at 
-             FROM notes WHERE verse_id = ? ORDER BY updated_at DESC".to_string(),
-            vec![Box::new(vid)]
+            "SELECT id, verse_id, title, content, tags, created_at, updated_at
+             FROM notes WHERE verse_id = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+                .to_string(),
+            vec![Box::new(vid), Box::new(lim), Box::new(off)],
         )
     } else {
         (
-            "SELECT id, verse_id, title, content, tags, created_at, updated_at 
-             FROM notes ORDER BY updated_at DESC".to_string(),
-            vec![]
+            "SELECT id, verse_id, title, content, tags, created_at, updated_at
+             FROM notes ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+                .to_string(),
+            vec![Box::new(lim), Box::new(off)],
         )
     };
 
     let mut stmt = conn.prepare(&sql)?;
     let params_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|b| b.as_ref()).collect();
-    
+
     let notes = stmt.query_map(rusqlite::params_from_iter(params_refs), |row| {
         Ok(Note {
             id: row.get(0)?,
@@ -638,6 +683,19 @@ pub fn get_notes(db: &Database, verse_id: Option<i64>) -> SqliteResult<Vec<Note>
     })?.collect::<Result<Vec<_>, _>>()?;
 
     Ok(notes)
+}
+
+pub fn count_notes(db: &Database, verse_id: Option<i64>) -> SqliteResult<i64> {
+    let conn = db.conn.lock().unwrap();
+    if let Some(vid) = verse_id {
+        conn.query_row(
+            "SELECT COUNT(*) FROM notes WHERE verse_id = ?",
+            params![vid],
+            |r| r.get(0),
+        )
+    } else {
+        conn.query_row("SELECT COUNT(*) FROM notes", [], |r| r.get(0))
+    }
 }
 
 pub fn update_note(db: &Database, id: i64, title: Option<&str>, content: &str, tags: Vec<&str>) -> SqliteResult<Note> {

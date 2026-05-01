@@ -30,6 +30,15 @@ pub fn get_book_index(db: State<Database>) -> Result<Vec<Book>, String> {
     queries::get_all_books(&db).map_err(|e| e.to_string())
 }
 
+/// Returns a `{ abbreviation: max_chapter }` map for every book that has
+/// verses loaded. The frontend caches this once at startup so chapter
+/// counts always match the DB instead of a hand-maintained constant.
+#[tauri::command]
+pub fn get_chapter_counts(db: State<Database>) -> Result<std::collections::HashMap<String, i32>, String> {
+    let pairs = queries::get_chapter_counts(&db).map_err(|e| e.to_string())?;
+    Ok(pairs.into_iter().collect())
+}
+
 #[tauri::command]
 pub fn compare_verses(
     db: State<Database>,

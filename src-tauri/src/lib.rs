@@ -9,10 +9,11 @@ pub mod ai;
 
 use commands::{
     ai_chat, compare_verses, create_bookmark, create_note, delete_bookmark, delete_note,
-    export_notes_and_bookmarks, get_book_index, get_bookmarks, get_chapter, get_chapter_originals,
-    get_ketiv_qere, get_notes, get_preference, get_reading_progress, get_strongs_greek,
-    get_strongs_hebrew, get_verse, get_verse_words, populate_terms_fts, search_notes, search_terms,
-    search_verses, set_preference, update_note, update_reading_progress,
+    export_notes_and_bookmarks, get_book_index, get_bookmarks, get_chapter, get_chapter_counts,
+    get_chapter_originals, get_ketiv_qere, get_notes, get_preference, get_reading_progress,
+    get_strongs_greek, get_strongs_hebrew, get_verse, get_verse_words, populate_terms_fts,
+    search_notes, search_terms, search_verses, set_preference, update_note,
+    update_reading_progress,
 };
 
 pub use database::Database;
@@ -121,6 +122,7 @@ pub fn run() {
             get_verse,
             get_chapter,
             get_book_index,
+            get_chapter_counts,
             search_verses,
             search_terms,
             create_bookmark,

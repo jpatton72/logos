@@ -645,6 +645,11 @@ def _fetch_sefaria_chapter(book: str, chapter: int) -> list[tuple[str, list[tupl
 def ingest_wlc(conn: sqlite3.Connection, book_ids: dict[str, int], trans_id: int) -> tuple[int, int]:
     """Download and ingest Hebrew Masoretic text from Sefaria API.
 
+    Legacy path — OSHB is the supported Hebrew ingester now (it ships
+    morphology + Strong's IDs, which Sefaria does not). This function is
+    kept for the rare case where someone needs Sefaria's K/Q markup
+    standalone; do not invoke it as part of a routine rebuild.
+
     Returns (verse_count, kq_count).
     """
     import concurrent.futures
@@ -659,14 +664,17 @@ def ingest_wlc(conn: sqlite3.Connection, book_ids: dict[str, int], trans_id: int
             print(f"    {abbrev}: not in books table, skipping")
             continue
 
-        # Probe chapter count by fetching chapters concurrently (up to 160)
+        # Probe chapter count by fetching chapters concurrently (up to 160).
+        # Concurrency capped at 4 to stay polite to Sefaria's public API —
+        # the previous 10-worker pool was unfriendly and risked rate-limit
+        # bans for the whole 39-book sweep.
         def fetch_ch(ch: int) -> tuple:
             return (ch, _fetch_sefaria_chapter(sefaria_name, ch))
 
         chapters = {}
         max_probe = 160
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
             futures = [executor.submit(fetch_ch, ch) for ch in range(1, max_probe + 1)]
             for future in concurrent.futures.as_completed(futures):
                 ch, result = future.result()

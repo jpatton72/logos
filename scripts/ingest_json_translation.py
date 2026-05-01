@@ -89,14 +89,36 @@ def ingest(
 ) -> None:
     if not db_path.exists():
         raise SystemExit(f"DB not found at {db_path}; run the app once to seed it, or pass --db-path.")
+    # Cap JSON inputs at 256 MiB. Real Bible-translation JSON files top out
+    # around 10 MiB; anything larger almost certainly indicates a bad URL,
+    # a corrupt download, or a hostile payload, and json.load on a runaway
+    # file will happily blow out memory before failing.
+    max_bytes = 256 * 1024 * 1024
     if not json_path.exists():
         if download_url:
             print(f"JSON file not found locally; downloading from {download_url}")
             json_path.parent.mkdir(parents=True, exist_ok=True)
             with urllib.request.urlopen(download_url) as resp:
-                json_path.write_bytes(resp.read())
+                content_length = resp.headers.get("Content-Length")
+                if content_length and int(content_length) > max_bytes:
+                    raise SystemExit(
+                        f"Refusing to download {download_url}: "
+                        f"Content-Length {content_length} exceeds {max_bytes}-byte cap."
+                    )
+                payload = resp.read(max_bytes + 1)
+                if len(payload) > max_bytes:
+                    raise SystemExit(
+                        f"Refusing to download {download_url}: response exceeds {max_bytes}-byte cap."
+                    )
+                json_path.write_bytes(payload)
         else:
             raise SystemExit(f"JSON file not found: {json_path}")
+
+    file_size = json_path.stat().st_size
+    if file_size > max_bytes:
+        raise SystemExit(
+            f"Refusing to ingest {json_path}: file is {file_size} bytes (cap {max_bytes})."
+        )
 
     print(f"DB:  {db_path}")
     print(f"In:  {json_path}")

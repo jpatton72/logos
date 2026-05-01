@@ -33,7 +33,8 @@ pub struct ExportData {
 #[tauri::command]
 pub fn export_notes_and_bookmarks(db: State<'_, Database>) -> Result<ExportData, String> {
     // Get all notes with verse references
-    let raw_notes = queries::get_notes(&db, None).map_err(|e| e.to_string())?;
+    // Export needs every note + bookmark, regardless of UI pagination.
+    let raw_notes = queries::get_notes(&db, None, None, None).map_err(|e| e.to_string())?;
     let notes: Vec<ExportedNote> = raw_notes.into_iter().map(|n| {
         let verse_ref = if let Some(vid) = n.verse_id {
             queries::get_verse_by_id(&db, vid)
@@ -56,7 +57,7 @@ pub fn export_notes_and_bookmarks(db: State<'_, Database>) -> Result<ExportData,
     }).collect();
 
     // Get all bookmarks
-    let raw_bookmarks = queries::get_all_bookmarks(&db).map_err(|e| e.to_string())?;
+    let raw_bookmarks = queries::get_all_bookmarks(&db, None, None).map_err(|e| e.to_string())?;
     let bookmarks: Vec<ExportedBookmark> = raw_bookmarks.into_iter().map(|b| {
         ExportedBookmark {
             id: b.id,

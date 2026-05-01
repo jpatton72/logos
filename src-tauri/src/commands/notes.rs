@@ -1,6 +1,13 @@
+use serde::Serialize;
 use tauri::State;
 
 use crate::database::{queries, Database, Note};
+
+#[derive(Serialize)]
+pub struct PaginatedNotes {
+    pub items: Vec<Note>,
+    pub total: i64,
+}
 
 #[tauri::command]
 pub fn create_note(
@@ -14,12 +21,21 @@ pub fn create_note(
         .map_err(|e| e.to_string())
 }
 
+/// Page of notes plus the total count for that filter.
+/// `limit` defaults to 100; pass 0 for unbounded (used by the export
+/// command).
 #[tauri::command]
 pub fn get_notes(
     db: State<'_, Database>,
     verse_id: Option<i64>,
-) -> Result<Vec<Note>, String> {
-    queries::get_notes(&db, verse_id).map_err(|e| e.to_string())
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> Result<PaginatedNotes, String> {
+    let effective_limit = limit.or(Some(100));
+    let items = queries::get_notes(&db, verse_id, effective_limit, offset)
+        .map_err(|e| e.to_string())?;
+    let total = queries::count_notes(&db, verse_id).map_err(|e| e.to_string())?;
+    Ok(PaginatedNotes { items, total })
 }
 
 #[tauri::command]
