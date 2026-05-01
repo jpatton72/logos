@@ -264,6 +264,11 @@ function AppInner() {
         onOpenCompare={() => navigate('/compare')}
         onOpenLexicon={() => navigate('/lexicon')}
         onGoHome={() => {
+          // Close any open transient UI but leave the user's reading
+          // position, active translations, and verse selection alone —
+          // "home" means "back to the reader," not "reset everything to
+          // Genesis 1 KJV." The persisted store + reading_progress
+          // table already remember where the user was.
           setShowSettings(false);
           setShowBookmarks(false);
           setShowNotes(false);
@@ -271,11 +276,6 @@ function AppInner() {
           setShowAiPanel(false);
           setAiWordContext(undefined);
           setShowKeyboardHelp(false);
-          const store = useAppStore.getState();
-          store.setBook('gen');
-          store.setChapter(1);
-          store.clearVerseSelection();
-          store.setActiveTranslations(['KJV']);
           navigate('/');
         }}
       />
