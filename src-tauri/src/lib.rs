@@ -13,8 +13,8 @@ use commands::{
     delete_note, export_notes_and_bookmarks, get_book_index, get_bookmarks, get_chapter,
     get_chapter_counts, get_chapter_originals, get_ketiv_qere, get_notes, get_preference,
     get_reading_progress, get_strongs_greek, get_strongs_hebrew, get_verse, get_verse_words,
-    has_api_key, populate_terms_fts, search_notes, search_terms, search_verses, set_api_key,
-    set_preference, update_note, update_reading_progress,
+    has_api_key, lookup_english_term, populate_terms_fts, search_notes, search_terms,
+    search_verses, set_api_key, set_preference, update_note, update_reading_progress,
 };
 
 pub use database::Database;
@@ -209,6 +209,7 @@ pub fn run() {
             get_strongs_greek,
             get_strongs_hebrew,
             get_verse_words,
+            lookup_english_term,
             get_chapter_originals,
             get_ketiv_qere,
             get_preference,

@@ -143,6 +143,23 @@ pub struct WordMapping {
     pub language: String,
 }
 
+/// One row of the English-to-Strong's lookup. Returned ranked by
+/// `frequency` (descending) so the top hit is the most likely match for
+/// the queried English word.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct EnglishStrongsResult {
+    pub strongs_id: String,
+    pub language: String,
+    pub frequency: i64,
+    pub original_word: Option<String>,
+    pub transliteration: Option<String>,
+    pub definition: Option<String>,
+    pub sample_book_abbreviation: Option<String>,
+    pub sample_book_name: Option<String>,
+    pub sample_chapter: Option<i32>,
+    pub sample_verse: Option<i32>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ReadingProgressEntry {
     pub book_id: i64,
@@ -861,6 +878,68 @@ pub fn get_verse_words(db: &Database, verse_id: i64) -> SqliteResult<Vec<WordMap
     })?.collect::<Result<Vec<_>, _>>()?;
 
     Ok(words)
+}
+
+// ============================================================================
+// English -> Strong's Lookup
+// ============================================================================
+
+/// Look up an English word in `english_strongs_index` and return ranked
+/// Strong's candidates with their lexicon entries and one example
+/// reference. Built from the eBible.org KJV2006 USFM ingest, so the
+/// English word matching is exact-match against KJV wording — searching
+/// "love" returns G26/G25/H157/etc.; searching "charity" returns G26
+/// alone (KJV uses "charity" in 1 Cor 13).
+pub fn lookup_english_term(
+    db: &Database,
+    term: &str,
+    limit: u32,
+) -> SqliteResult<Vec<EnglishStrongsResult>> {
+    let conn = db.conn.lock().unwrap();
+    let normalized = term.trim().to_lowercase();
+    if normalized.is_empty() {
+        return Ok(Vec::new());
+    }
+    // LEFT JOIN both lexicon tables; the language column on the index
+    // tells us which one will have a match. COALESCE picks the right
+    // one without needing two queries.
+    let mut stmt = conn.prepare(
+        "SELECT
+            i.strongs_id,
+            i.language,
+            i.frequency,
+            COALESCE(sg.word, sh.word) AS original_word,
+            COALESCE(sg.transliteration, sh.transliteration) AS transliteration,
+            COALESCE(sg.definition, sh.definition) AS definition,
+            b.abbreviation AS sample_book_abbrev,
+            b.full_name AS sample_book_name,
+            i.sample_chapter,
+            i.sample_verse
+         FROM english_strongs_index i
+         LEFT JOIN strongs_greek sg ON i.language = 'greek' AND sg.id = i.strongs_id
+         LEFT JOIN strongs_hebrew sh ON i.language = 'hebrew' AND sh.id = i.strongs_id
+         LEFT JOIN books b ON b.id = i.sample_book_id
+         WHERE i.english_word = ?
+         ORDER BY i.frequency DESC
+         LIMIT ?",
+    )?;
+    let rows = stmt
+        .query_map(params![normalized, limit as i64], |row| {
+            Ok(EnglishStrongsResult {
+                strongs_id: row.get(0)?,
+                language: row.get(1)?,
+                frequency: row.get(2)?,
+                original_word: row.get(3)?,
+                transliteration: row.get(4)?,
+                definition: row.get(5)?,
+                sample_book_abbreviation: row.get(6)?,
+                sample_book_name: row.get(7)?,
+                sample_chapter: row.get(8)?,
+                sample_verse: row.get(9)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
 }
 
 // ============================================================================

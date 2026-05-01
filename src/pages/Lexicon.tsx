@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { getStrongsGreek, getStrongsHebrew, getChapterOriginals } from '../lib/tauri';
-import type { WordMapping, StrongsGreek, StrongsHebrew, VerseWithWords } from '../lib/tauri';
+import { getStrongsGreek, getStrongsHebrew, getChapterOriginals, lookupEnglishTerm } from '../lib/tauri';
+import type { WordMapping, StrongsGreek, StrongsHebrew, VerseWithWords, EnglishStrongsResult } from '../lib/tauri';
 import { useFocusTrap } from '../lib/useFocusTrap';
 import {
   parseGreekMorphology,
@@ -209,7 +209,7 @@ function WordDetail({ word, strongsEntry, darkMode, onClose }: WordDetailProps) 
 // Main Lexicon Page
 // ============================================================================
 
-type Tab = 'search' | 'chapter';
+type Tab = 'search' | 'english' | 'chapter';
 
 export default function Lexicon() {
   const { darkMode, currentBook, currentChapter, books, ensureBooks } = useAppStore();
@@ -222,6 +222,13 @@ export default function Lexicon() {
   const [strongsResult, setStrongsResult] = useState<{ entry: StrongsGreekFull | StrongsHebrewFull | null; id: string } | null>(null);
   const [strongsLoading, setStrongsLoading] = useState(false);
   const [strongsError, setStrongsError] = useState('');
+
+  // English-lookup state
+  const [englishQuery, setEnglishQuery] = useState('');
+  const [englishResults, setEnglishResults] = useState<EnglishStrongsResult[]>([]);
+  const [englishLoading, setEnglishLoading] = useState(false);
+  const [englishError, setEnglishError] = useState('');
+  const [englishSubmittedTerm, setEnglishSubmittedTerm] = useState('');
 
   // Chapter word list state
   const [chapterBook, setChapterBook] = useState(currentBook || 'john');
@@ -272,6 +279,48 @@ export default function Lexicon() {
     } finally {
       setStrongsLoading(false);
     }
+  };
+
+  // ===========================================================================
+  // English -> Strong's Lookup
+  // ===========================================================================
+
+  const handleEnglishSearch = async () => {
+    const q = englishQuery.trim();
+    if (!q) return;
+    setEnglishLoading(true);
+    setEnglishError('');
+    setEnglishResults([]);
+    setEnglishSubmittedTerm(q);
+    try {
+      const results = await lookupEnglishTerm(q, 25);
+      setEnglishResults(results);
+    } catch {
+      setEnglishError('Failed to look up that word. Please try again.');
+    } finally {
+      setEnglishLoading(false);
+    }
+  };
+
+  /** Jump from an English-lookup result row into the Strong's lookup
+   *  tab so the user can read the full lexicon entry. Avoids a second
+   *  network/IPC fetch — we already have transliteration + definition. */
+  const openStrongsFromResult = (result: EnglishStrongsResult) => {
+    setStrongsQuery(result.strongs_id);
+    setActiveTab('search');
+    // Defer the actual fetch to the existing Strong's-search effect
+    // wrapper: a click on Look Up triggers handleStrongsSearch, but
+    // since we're cross-tabbing programmatically we call it directly.
+    setTimeout(() => {
+      setStrongsLoading(true);
+      setStrongsError('');
+      setStrongsResult(null);
+      const fetcher = result.language === 'hebrew' ? getStrongsHebrew : getStrongsGreek;
+      fetcher(result.strongs_id)
+        .then((entry) => setStrongsResult({ entry: entry as StrongsGreekFull | StrongsHebrewFull | null, id: result.strongs_id }))
+        .catch(() => setStrongsError('Failed to look up Strong\'s entry.'))
+        .finally(() => setStrongsLoading(false));
+    }, 0);
   };
 
   // ===========================================================================
@@ -449,7 +498,7 @@ export default function Lexicon() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1.5rem', borderBottom: `2px solid ${border}` }}>
-        {(['search', 'chapter'] as Tab[]).map((tab) => (
+        {(['search', 'english', 'chapter'] as Tab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -467,7 +516,7 @@ export default function Lexicon() {
               transition: 'color 0.15s',
             }}
           >
-            {tab === 'search' ? "Strong's Lookup" : 'Chapter Words'}
+            {tab === 'search' ? "Strong's Lookup" : tab === 'english' ? 'English Word' : 'Chapter Words'}
           </button>
         ))}
       </div>
@@ -687,7 +736,201 @@ export default function Lexicon() {
       )}
 
       {/* ================================================================ */}
-      {/* Tab 2: Chapter Word List */}
+      {/* Tab 2: English Word -> Strong's */}
+      {/* ================================================================ */}
+      {activeTab === 'english' && (
+        <div>
+          <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: muted, lineHeight: 1.55 }}>
+            Type an English word as it appears in the KJV (e.g., <em>love</em>, <em>charity</em>,
+            <em> covenant</em>). Results are ranked by how often that English word maps to each
+            Strong's entry across the whole KJV. Click any row to open its full lexicon entry.
+          </p>
+
+          {/* Search input */}
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem' }}>
+            <div
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                borderRadius: '10px',
+                border: `2px solid ${darkMode ? '#44403c' : '#e7e5e4'}`,
+                backgroundColor: surface,
+                padding: '0 0.75rem',
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={muted} strokeWidth="2" style={{ flexShrink: 0 }}>
+                <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input
+                type="text"
+                value={englishQuery}
+                onChange={(e) => setEnglishQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleEnglishSearch()}
+                placeholder="Enter an English word from the KJV…"
+                spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="off"
+                style={{
+                  flex: 1,
+                  border: 'none',
+                  background: 'transparent',
+                  padding: '0.75rem 0',
+                  fontSize: '1rem',
+                  color: darkMode ? '#f5f5f4' : '#292524',
+                  outline: 'none',
+                }}
+              />
+              {englishQuery && (
+                <button
+                  onClick={() => { setEnglishQuery(''); setEnglishResults([]); setEnglishError(''); setEnglishSubmittedTerm(''); }}
+                  aria-label="Clear English query"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: muted, display: 'flex', alignItems: 'center', padding: '0.25rem' }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              )}
+            </div>
+            <button
+              onClick={handleEnglishSearch}
+              disabled={englishLoading || !englishQuery.trim()}
+              style={{
+                padding: '0.625rem 1.25rem',
+                borderRadius: '10px',
+                border: 'none',
+                backgroundColor: englishLoading ? (darkMode ? '#3c3a36' : '#d6d3d1') : strongsAccent,
+                color: '#fff',
+                fontSize: '0.875rem',
+                fontWeight: 700,
+                cursor: englishLoading ? 'not-allowed' : 'pointer',
+                transition: 'background-color 0.15s',
+              }}
+            >
+              {englishLoading ? 'Searching…' : 'Look Up'}
+            </button>
+          </div>
+
+          {/* Quick suggestions */}
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
+            {['love', 'charity', 'covenant', 'lord', 'mercy', 'righteousness', 'faith'].map((w) => (
+              <button
+                key={w}
+                onClick={() => { setEnglishQuery(w); setEnglishSubmittedTerm(''); setEnglishResults([]); setEnglishError(''); }}
+                style={{
+                  padding: '0.25rem 0.625rem',
+                  borderRadius: '9999px',
+                  border: `1px solid ${border}`,
+                  backgroundColor: bg,
+                  color: muted,
+                  fontSize: '0.75rem',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                {w}
+              </button>
+            ))}
+          </div>
+
+          {/* Results */}
+          {englishError && (
+            <div style={{ padding: '1rem', borderRadius: '8px', backgroundColor: darkMode ? '#3f1d1d' : '#fef2f2', color: '#dc2626', marginBottom: '1rem' }}>
+              {englishError}
+            </div>
+          )}
+          {englishLoading ? (
+            <p style={{ textAlign: 'center', padding: '2rem', color: muted }}>Searching…</p>
+          ) : englishResults.length > 0 ? (
+            <div>
+              <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: muted }}>
+                {englishResults.length} Strong's {englishResults.length === 1 ? 'entry' : 'entries'} for
+                "<strong>{englishSubmittedTerm}</strong>" in the KJV, ranked by frequency.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {englishResults.map((r) => {
+                  const isHebrew = r.language === 'hebrew';
+                  const accent = isHebrew ? '#15803d' : '#1d4ed8';
+                  return (
+                    <button
+                      key={r.strongs_id}
+                      onClick={() => openStrongsFromResult(r)}
+                      style={{
+                        textAlign: 'left',
+                        padding: '0.75rem 1rem',
+                        borderRadius: '10px',
+                        border: `1px solid ${border}`,
+                        backgroundColor: surface,
+                        cursor: 'pointer',
+                        display: 'grid',
+                        gridTemplateColumns: 'auto 1fr auto',
+                        gap: '0.75rem',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <span style={{
+                        fontFamily: isHebrew ? "'Noto Serif Hebrew', serif" : "'Noto Serif', serif",
+                        fontSize: '1.25rem',
+                        fontWeight: 600,
+                        color: accent,
+                        direction: isHebrew ? 'rtl' : 'ltr',
+                        minWidth: '4rem',
+                        textAlign: isHebrew ? 'right' : 'left',
+                      }}>
+                        {r.original_word ?? r.strongs_id}
+                      </span>
+                      <span style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem', minWidth: 0 }}>
+                        <span style={{ display: 'flex', gap: '0.5rem', alignItems: 'baseline' }}>
+                          <code style={{ fontSize: '0.75rem', fontFamily: 'monospace', fontWeight: 700, color: accent }}>
+                            {r.strongs_id}
+                          </code>
+                          {r.transliteration && (
+                            <span style={{ fontSize: '0.85rem', fontStyle: 'italic', color: darkMode ? '#f5f5f4' : '#292524' }}>
+                              {r.transliteration}
+                            </span>
+                          )}
+                        </span>
+                        {r.definition && (
+                          <span style={{ fontSize: '0.75rem', color: muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {r.definition}
+                          </span>
+                        )}
+                        {r.sample_book_abbreviation && r.sample_chapter && r.sample_verse && (
+                          <span style={{ fontSize: '0.7rem', color: muted, opacity: 0.7 }}>
+                            e.g. {r.sample_book_abbreviation} {r.sample_chapter}:{r.sample_verse}
+                          </span>
+                        )}
+                      </span>
+                      <span style={{ fontSize: '0.7rem', fontFamily: 'monospace', color: muted, whiteSpace: 'nowrap' }}>
+                        ×{r.frequency}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : englishSubmittedTerm ? (
+            <p style={{ textAlign: 'center', padding: '2rem', color: muted, fontSize: '0.875rem' }}>
+              No Strong's entries found for "<strong>{englishSubmittedTerm}</strong>" in the KJV.
+              The KJV may use a different word for this concept — try synonyms like
+              "charity" instead of "love", or "shew" instead of "show".
+            </p>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: muted }}>
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ marginBottom: '0.75rem', opacity: 0.6 }}>
+                <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <p style={{ fontSize: '0.9rem', fontWeight: 500 }}>Look up an English word's Strong's options</p>
+              <p style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}>Tries each KJV-tagged occurrence and ranks by frequency.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ================================================================ */}
+      {/* Tab 3: Chapter Word List */}
       {/* ================================================================ */}
       {activeTab === 'chapter' && (
         <div>

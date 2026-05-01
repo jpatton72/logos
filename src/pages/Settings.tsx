@@ -311,7 +311,7 @@ export default function Settings() {
             <p style={{ margin: '0 0 0.5rem' }}>
               <strong>Bibles & lexicons:</strong> KJV (Public Domain), Westminster Leningrad Codex (Open Translation License),
               OpenScriptures Hebrew Bible morphology (CC-BY 4.0), MorphGNT/SBLGNT morphology (CC-BY-SA 3.0),
-              Strong's Greek + Hebrew (Public Domain).
+              Strong's Greek + Hebrew (Public Domain), eBible.org KJV2006 USFM with Strong's tags (Public Domain) for the Lexicon English-lookup index.
             </p>
             <p style={{ margin: '0 0 0.5rem' }}>
               <strong>Fonts:</strong> Inter, Lora, Noto Serif, and Noto Serif Hebrew — all SIL Open Font License,

@@ -68,6 +68,7 @@ the file/dir argument is missing.
 | [`scripts/ingest_morphgnt.py`](scripts/ingest_morphgnt.py) | Greek NT word_mappings | github.com/morphgnt/sblgnt |
 | [`scripts/ingest_oshb.py`](scripts/ingest_oshb.py) | Hebrew OT word_mappings | github.com/openscriptures/morphhb |
 | [`scripts/ingest_word_mappings.py`](scripts/ingest_word_mappings.py) | Resolve lemma → Strong's IDs, build terms_fts | (post-processing) |
+| [`scripts/ingest_kjv_strongs.py`](scripts/ingest_kjv_strongs.py) | English→Strong's index for Lexicon English-lookup | ebible.org/Scriptures/eng-kjv2006_usfm.zip |
 | [`scripts/rebuild_database.py`](scripts/rebuild_database.py) | Run all of the above in the correct order | — |
 
 ## Files NOT committed to git

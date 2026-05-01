@@ -264,6 +264,35 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
         [CURRENT_SCHEMA],
     )?;
 
+    // English-to-Strong's index. Each row says "the lowercased English
+    // word X corresponds to Strong's Y in the KJV N times, with one
+    // example reference." Built from eBible.org's eng-kjv2006 USFM
+    // (Public Domain) by `scripts/ingest_kjv_strongs.py`. Used by the
+    // Lexicon page's English-lookup feature to rank Strong's candidates
+    // for a given English word.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS english_strongs_index (
+            id INTEGER PRIMARY KEY,
+            english_word TEXT NOT NULL,
+            strongs_id TEXT NOT NULL,
+            language TEXT NOT NULL CHECK (language IN ('hebrew', 'greek')),
+            frequency INTEGER NOT NULL,
+            sample_book_id INTEGER REFERENCES books(id),
+            sample_chapter INTEGER,
+            sample_verse INTEGER,
+            UNIQUE(english_word, strongs_id)
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_english_strongs_word ON english_strongs_index(english_word)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_english_strongs_strongs ON english_strongs_index(strongs_id)",
+        [],
+    )?;
+
     info!("Database migrations completed successfully");
     Ok(())
 }
@@ -271,4 +300,5 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
 /// Bump on schema-affecting changes:
 ///   1 = initial release
 ///   2 = books.testament CHECK relaxed to allow 'apoc'
-pub const CURRENT_SCHEMA: i32 = 2;
+///   3 = added english_strongs_index for KJV->Strong's lookup
+pub const CURRENT_SCHEMA: i32 = 3;

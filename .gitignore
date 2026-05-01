@@ -14,6 +14,7 @@ node_modules/
 
 # Downloaded ingest sources (auto-fetched by the scripts on demand)
 data/*.json
+data/*.zip
 data/oshb/
 
 # Built installers (distribute via GitHub Releases instead)

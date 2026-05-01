@@ -373,6 +373,32 @@ export async function getVerseWords(verseId: number): Promise<WordMapping[]> {
   return invoke<WordMapping[]>("get_verse_words", { verseId });
 }
 
+/** One ranked Strong's candidate returned by `lookupEnglishTerm`. */
+export interface EnglishStrongsResult {
+  strongs_id: string;
+  language: "hebrew" | "greek";
+  frequency: number;
+  original_word: string | null;
+  transliteration: string | null;
+  definition: string | null;
+  sample_book_abbreviation: string | null;
+  sample_book_name: string | null;
+  sample_chapter: number | null;
+  sample_verse: number | null;
+}
+
+/** Look up an English KJV word and return ranked Strong's candidates with
+ *  their lexicon entries and one example reference per candidate. */
+export async function lookupEnglishTerm(
+  term: string,
+  limit?: number,
+): Promise<EnglishStrongsResult[]> {
+  return invoke<EnglishStrongsResult[]>("lookup_english_term", {
+    term,
+    limit: limit ?? null,
+  });
+}
+
 // ============================================================================
 // Original Language Commands
 // ============================================================================

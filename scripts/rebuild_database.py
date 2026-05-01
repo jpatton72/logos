@@ -19,7 +19,8 @@ Steps performed:
     5. Ingest MorphGNT Greek word_mappings (auto-download from morphgnt/sblgnt).
     6. Ingest OSHB Hebrew word_mappings (auto-download from openscriptures/morphhb).
     7. Resolve lemma -> Strong's IDs and populate terms_fts (ingest_word_mappings.py).
-    8. Copy the populated DB to src-tauri/aletheia.db.
+    8. Build english_strongs_index from eBible KJV2006 USFM (ingest_kjv_strongs.py).
+    9. Copy the populated DB to src-tauri/aletheia.db.
 
 Step 1 + 2 are skipped if the DB already has populated `verses` and Strong's
 tables (so reruns don't duplicate work).
@@ -161,7 +162,10 @@ def main() -> int:
     # Step 7: lemma -> Strong's match + terms_fts
     run(py, str(SCRIPTS / "ingest_word_mappings.py"), "--db-path", str(db_path), *root_args)
 
-    # Step 8: copy to src-tauri/ so the next `tauri build` ships it.
+    # Step 8: KJV English -> Strong's index for the Lexicon's English-lookup.
+    run(py, str(SCRIPTS / "ingest_kjv_strongs.py"), "--db-path", str(db_path), *root_args)
+
+    # Step 9: copy to src-tauri/ so the next `tauri build` ships it.
     if not args.skip_copy:
         shutil.copy2(db_path, BUNDLED_DB)
         size_mb = BUNDLED_DB.stat().st_size / (1024 * 1024)

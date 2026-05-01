@@ -13,6 +13,7 @@ upstream license; consult the linked sources for full text.
 | **OpenScriptures Hebrew Bible (OSHB)** | Hebrew OT word mappings (Strong's IDs, lemma, morphology) | [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/) | © OpenScriptures, [github.com/openscriptures/morphhb](https://github.com/openscriptures/morphhb) |
 | **MorphGNT / SBLGNT morphology** | Greek NT word mappings (Strong's IDs, lemma, morphology) | [CC-BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) | © MorphGNT contributors, [github.com/morphgnt/sblgnt](https://github.com/morphgnt/sblgnt) |
 | **Strong's Greek + Hebrew lexicons** | Word definitions, transliterations, pronunciations | Public Domain (James Strong, 1890) | — |
+| **eBible.org KJV2006 USFM (`eng-kjv2006`)** | English-to-Strong's index for the Lexicon's English-lookup feature | Public Domain (KJV text + Strong's tagging both PD; UK Crown Letters Patent only apply inside the UK) | [eBible.org](https://ebible.org/find/details.php?id=eng-kjv2006), upstream Crosswire KJV2003 |
 
 ### Optionally-installed translations
 
