@@ -187,6 +187,46 @@ def fetch_url(url: str, timeout: int = 30) -> bytes | None:
         return None
 
 
+def relax_legacy_books_check(conn: sqlite3.Connection) -> None:
+    """If `books.testament` still has the old two-value CHECK, rewrite
+    the table to allow 'apoc'. Runs inside a transaction with foreign
+    keys disabled so dependent rows in `verses`/etc. survive the swap."""
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='books'"
+    ).fetchone()
+    if row is None:
+        return
+    sql = row[0] or ""
+    if "'apoc'" in sql:
+        return  # Already relaxed.
+    print("Migrating books.testament CHECK constraint to allow 'apoc'...")
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        conn.execute("BEGIN")
+        conn.execute("""
+            CREATE TABLE books_new (
+                id INTEGER PRIMARY KEY,
+                abbreviation TEXT UNIQUE NOT NULL,
+                full_name TEXT NOT NULL,
+                testament TEXT NOT NULL CHECK (testament IN ('ot', 'nt', 'apoc')),
+                genre TEXT NOT NULL,
+                order_index INTEGER NOT NULL
+            )
+        """)
+        conn.execute(
+            "INSERT INTO books_new (id, abbreviation, full_name, testament, genre, order_index) "
+            "SELECT id, abbreviation, full_name, testament, genre, order_index FROM books"
+        )
+        conn.execute("DROP TABLE books")
+        conn.execute("ALTER TABLE books_new RENAME TO books")
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON")
+
+
 def ensure_db_tables(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -196,11 +236,17 @@ def ensure_db_tables(conn: sqlite3.Connection) -> None:
             id INTEGER PRIMARY KEY,
             abbreviation TEXT UNIQUE NOT NULL,
             full_name TEXT NOT NULL,
-            testament TEXT NOT NULL CHECK (testament IN ('ot', 'nt')),
+            testament TEXT NOT NULL CHECK (testament IN ('ot', 'nt', 'apoc')),
             genre TEXT NOT NULL,
             order_index INTEGER NOT NULL
         )
     """)
+    # Older DBs were created with `CHECK (testament IN ('ot', 'nt'))`,
+    # which blocks ingest_apocrypha.py. Detect that case and rewrite the
+    # table in place — SQLite has no DROP CONSTRAINT, so we copy rows
+    # into a relaxed-schema table and swap. Idempotent: a relaxed schema
+    # is left untouched.
+    relax_legacy_books_check(conn)
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS translations (
