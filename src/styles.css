@@ -224,6 +224,29 @@ html.dark .search-highlight {
   background-color: #78350f80;
 }
 
+/* Gentle flash applied to a verse row after the user lands on it from
+ * a search result or other deep-link source. Fades back to the row's
+ * normal background over ~2 seconds. The prefers-reduced-motion block
+ * below already collapses this to ~0 duration for users who set the
+ * OS-level preference, so we don't need a separate guard. */
+@keyframes verse-flash {
+  0%   { background-color: rgba(217, 119, 6, 0.35); }
+  60%  { background-color: rgba(217, 119, 6, 0.18); }
+  100% { background-color: transparent; }
+}
+.verse-flash-highlight {
+  animation: verse-flash 2.2s ease-out;
+  border-radius: 4px;
+}
+html.dark .verse-flash-highlight {
+  animation-name: verse-flash-dark;
+}
+@keyframes verse-flash-dark {
+  0%   { background-color: rgba(252, 211, 77, 0.30); }
+  60%  { background-color: rgba(252, 211, 77, 0.15); }
+  100% { background-color: transparent; }
+}
+
 /* Honor the OS-level "reduce motion" preference. Disables transitions and
  * animations across both stylesheet rules and inline-styled elements
  * (Compare/Lexicon/Sidebar/etc.) so users who set this for vestibular or

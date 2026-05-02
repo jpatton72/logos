@@ -22,7 +22,7 @@ export function ChapterView({
   onNextChapter,
   onOpenAi,
 }: ChapterViewProps) {
-  const { activeTranslations, darkMode, books, ensureBooks } = useAppStore();
+  const { activeTranslations, darkMode, books, ensureBooks, pendingScrollVerse, setPendingScrollVerse } = useAppStore();
   const [verses, setVerses] = useState<VerseGroup[]>([]);
   const [originalVerses, setOriginalVerses] = useState<VerseWithWords[]>([]);
   const [loading, setLoading] = useState(false);
@@ -43,6 +43,35 @@ export function ChapterView({
       setLoading(false);
     })();
   }, [book, chapter, activeTranslations.join(',')]);
+
+  // Consume any queued scroll-to-verse target. Fires once the verses
+  // for the requested chapter are actually rendered (so getElementById
+  // can find the row). Tries a couple of staggered timeouts because
+  // VerseDisplay's portal-based tooltip + browser layout can take a
+  // tick after `verses` updates before the new IDs are in the DOM.
+  useEffect(() => {
+    if (!pendingScrollVerse) return;
+    if (loading || verses.length === 0) return;
+    if (pendingScrollVerse.book.toLowerCase() !== book.toLowerCase()) return;
+    if (pendingScrollVerse.chapter !== chapter) return;
+
+    const target = pendingScrollVerse;
+    const tries = [50, 200, 500];
+    let landed = false;
+    const timeouts = tries.map((delay) =>
+      setTimeout(() => {
+        if (landed) return;
+        const el = document.getElementById(`verse-${target.book}-${target.chapter}-${target.verseNum}`);
+        if (!el) return;
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('verse-flash-highlight');
+        setTimeout(() => el.classList.remove('verse-flash-highlight'), 2200);
+        setPendingScrollVerse(null);
+        landed = true;
+      }, delay),
+    );
+    return () => { timeouts.forEach(clearTimeout); };
+  }, [pendingScrollVerse, loading, verses, book, chapter, setPendingScrollVerse]);
 
   const matchedBook = books.find((b) => b.abbreviation.toLowerCase() === book.toLowerCase());
   const bookName = matchedBook?.full_name ?? (book.charAt(0).toUpperCase() + book.slice(1));

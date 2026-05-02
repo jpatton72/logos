@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
 import type { SearchResult, TermResult } from '../api';
@@ -25,33 +24,23 @@ function highlightText(text: string, query: string): React.ReactNode {
 }
 
 export function SearchResults({ verseResults, termResults, query }: SearchResultsProps) {
-  const { darkMode, setBook, setChapter } = useAppStore();
+  const { darkMode, setBook, setChapter, setPendingScrollVerse } = useAppStore();
   const navigate = useNavigate();
-  const [scrollToVerse, setScrollToVerse] = useState<{ book: string; chapter: number; verse: number } | null>(null);
-
-  useEffect(() => {
-    if (!scrollToVerse) return;
-    // Wait for reading page to mount and render, then scroll
-    const timer = setTimeout(() => {
-      const el = document.getElementById(`verse-${scrollToVerse.book}-${scrollToVerse.chapter}-${scrollToVerse.verse}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.style.outline = '2px solid #d97706';
-        setTimeout(() => { el.style.outline = ''; }, 2000);
-      }
-      setScrollToVerse(null);
-    }, 150);
-    return () => clearTimeout(timer);
-  }, [scrollToVerse]);
 
   const handleVerseClick = (result: SearchResult) => {
+    // Update reader location + queue the scroll-and-highlight target.
+    // ChapterView will pick up `pendingScrollVerse` once the requested
+    // chapter finishes rendering and clear it after scrolling. We
+    // navigate unconditionally so the click works whether or not the
+    // user is already on the reader.
     setBook(result.book_abbreviation);
     setChapter(result.chapter);
-    if (location.pathname !== '/') {
-      navigate('/');
-    } else {
-      setScrollToVerse({ book: result.book_abbreviation, chapter: result.chapter, verse: result.verse_num });
-    }
+    setPendingScrollVerse({
+      book: result.book_abbreviation,
+      chapter: result.chapter,
+      verseNum: result.verse_num,
+    });
+    navigate('/');
   };
 
   return (

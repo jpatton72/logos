@@ -82,6 +82,21 @@ function WordTooltip({ word, ketivQeres, position, onClose }: WordTooltipProps) 
         cursor: 'default',
       }}
     >
+      {/* Caption — names the field for users who don't know they're
+          looking at the source-language token. */}
+      <div
+        style={{
+          fontSize: '0.6rem',
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          letterSpacing: '0.08em',
+          color: darkMode ? '#78716c' : '#a8a29e',
+          marginBottom: '0.125rem',
+        }}
+      >
+        {isHebrew ? 'Hebrew word' : 'Greek word'}
+      </div>
+
       {/* Original word */}
       <div
         style={{
@@ -98,16 +113,22 @@ function WordTooltip({ word, ketivQeres, position, onClose }: WordTooltipProps) 
         {word.original_word}
       </div>
 
-      {/* Lemma */}
+      {/* Lemma — labeled. Lemma = the dictionary form of an inflected
+          word (e.g., "loved" -> "love"). */}
       {word.lemma && word.lemma !== word.original_word && (
-        <div style={{ fontSize: '0.78rem', fontStyle: 'italic', color: darkMode ? '#a8a29e' : '#78716c', marginBottom: '0.375rem', direction: isHebrew ? 'rtl' : 'ltr', textAlign: isHebrew ? 'right' : 'left' }}>
-          Lemma: {word.lemma}
+        <div style={{ fontSize: '0.78rem', color: darkMode ? '#a8a29e' : '#78716c', marginBottom: '0.375rem', direction: isHebrew ? 'rtl' : 'ltr', textAlign: isHebrew ? 'right' : 'left' }}>
+          <span style={{ fontWeight: 600 }}>Dictionary form:</span>{' '}
+          <span style={{ fontStyle: 'italic' }}>{word.lemma}</span>
         </div>
       )}
 
-      {/* Strong's badge */}
-      <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '0.5rem', alignItems: 'center' }}>
+      {/* Identity row: full-text labels so first-time users know what
+          "G25" and "Heb"/"Gk" actually mean. The Strong's pill carries
+          a `title` with a one-sentence explanation of the numbering
+          system for users who aren't familiar with it. */}
+      <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <span
+          title="James Strong's 1890 concordance assigned a unique number to every Hebrew and Greek word in the Bible. This is that number."
           style={{
             fontSize: '0.7rem',
             fontWeight: 700,
@@ -115,12 +136,22 @@ function WordTooltip({ word, ketivQeres, position, onClose }: WordTooltipProps) 
             borderRadius: '9999px',
             backgroundColor: darkMode ? '#78350f' : '#fef3c7',
             color: darkMode ? '#fcd34d' : '#92400e',
+            cursor: 'help',
           }}
         >
-          {word.strongs_id}
+          Strong's # {word.strongs_id}
         </span>
-        <span style={{ fontSize: '0.7rem', fontWeight: 600, color: darkMode ? '#78716c' : '#a8a29e', textTransform: 'uppercase' }}>
-          {isHebrew ? 'Heb' : 'Gk'}
+        <span
+          style={{
+            fontSize: '0.7rem',
+            fontWeight: 600,
+            padding: '0.15rem 0.5rem',
+            borderRadius: '9999px',
+            backgroundColor: darkMode ? '#1a1a14' : '#f5f5f4',
+            color: darkMode ? '#a8a29e' : '#78716c',
+          }}
+        >
+          {isHebrew ? 'Hebrew' : 'Greek'}
         </span>
       </div>
 
@@ -150,10 +181,16 @@ function WordTooltip({ word, ketivQeres, position, onClose }: WordTooltipProps) 
         </div>
       )}
 
-      {/* Raw morphology */}
+      {/* Raw morphology — the parser code-string the breakdown above
+          was derived from. Power users sometimes want to see it; new
+          users can ignore it, so it's labeled compactly. */}
       {word.morphology && (
-        <div style={{ fontSize: '0.65rem', color: darkMode ? '#57534e' : '#a8a29e', marginTop: '0.25rem', fontFamily: 'monospace' }}>
-          {word.morphology}
+        <div
+          style={{ fontSize: '0.65rem', color: darkMode ? '#57534e' : '#a8a29e', marginTop: '0.25rem' }}
+          title="Source code from the morphology dataset, e.g. 'V-IAI-3S' = Verb, Imperfect Active Indicative, 3rd person Singular."
+        >
+          <span style={{ fontWeight: 600 }}>Source code:</span>{' '}
+          <span style={{ fontFamily: 'monospace' }}>{word.morphology}</span>
         </div>
       )}
 
@@ -169,13 +206,19 @@ function WordTooltip({ word, ketivQeres, position, onClose }: WordTooltipProps) 
         ) : strongsEntry ? (
           <>
             {strongsEntry.transliteration && (
-              <div style={{ fontSize: '0.78rem', fontStyle: 'italic', color: darkMode ? '#a8a29e' : '#78716c', marginBottom: '0.25rem' }}>
-                {strongsEntry.transliteration}
-                {strongsEntry.pronunciation && (
-                  <span style={{ marginLeft: '0.5rem', fontStyle: 'normal', opacity: 0.7 }}>
-                    · {strongsEntry.pronunciation}
-                  </span>
-                )}
+              <div style={{ fontSize: '0.78rem', color: darkMode ? '#a8a29e' : '#78716c', marginBottom: '0.2rem' }}>
+                <span style={{ fontWeight: 600 }} title="The original-language word spelled in Latin letters, so you can pronounce it without reading Hebrew or Greek script.">
+                  Transliteration:
+                </span>{' '}
+                <span style={{ fontStyle: 'italic' }}>{strongsEntry.transliteration}</span>
+              </div>
+            )}
+            {strongsEntry.pronunciation && (
+              <div style={{ fontSize: '0.78rem', color: darkMode ? '#a8a29e' : '#78716c', marginBottom: '0.35rem' }}>
+                <span style={{ fontWeight: 600 }} title="An approximate phonetic spelling for English speakers.">
+                  Pronunciation:
+                </span>{' '}
+                {strongsEntry.pronunciation}
               </div>
             )}
             <p style={{ margin: 0, fontSize: '0.82rem', lineHeight: 1.5, color: darkMode ? '#f5f5f4' : '#292524' }}>
