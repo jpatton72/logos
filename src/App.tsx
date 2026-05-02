@@ -8,12 +8,11 @@ import { SearchPage } from './pages/SearchPage';
 import Settings from './pages/Settings';
 import Compare from './pages/Compare';
 import Lexicon from './pages/Lexicon';
-import { getBookmarks, deleteBookmark, getNotes, deleteNote, getStrongsHebrew, getStrongsGreek, createBookmark, getVerse, getChapter } from './api';
-import { NoteForm } from './components/NoteForm';
+import { getBookmarks, deleteBookmark, getStrongsHebrew, getStrongsGreek, createBookmark, getVerse, getChapter } from './api';
 import { AiPanel, type WordContext } from './components/AiPanel';
 import { StrongsSidebar } from './components/StrongsSidebar';
-import type { BookmarkWithVerse, Note as TauriNote } from './lib/tauri';
-import { exportNotesAndBookmarks } from './lib/tauri';
+import { NotesSidebar } from './components/NotesSidebar';
+import type { BookmarkWithVerse } from './lib/tauri';
 import { useFocusTrap } from './lib/useFocusTrap';
 
 const ORIGINAL_LANG_CODES = new Set(['wlc', 'sblgnt', 'oshb']);
@@ -324,6 +323,11 @@ function AppInner() {
               />
             </div>
           )}
+          {showNotes && (
+            <div style={{ width: '360px', flexShrink: 0, borderLeft: darkMode ? '1px solid #3c3a36' : '1px solid #e7e5e4', display: 'flex', flexDirection: 'column' }}>
+              <NotesSidebar darkMode={darkMode} onClose={() => setShowNotes(false)} />
+            </div>
+          )}
         </main>
       </div>
 
@@ -335,11 +339,6 @@ function AppInner() {
       {/* Bookmarks Panel */}
       {showBookmarks && (
         <BookmarkPanelModal darkMode={darkMode} onClose={() => setShowBookmarks(false)} />
-      )}
-
-      {/* Notes Panel */}
-      {showNotes && (
-        <NotesPanelModal darkMode={darkMode} onClose={() => setShowNotes(false)} />
       )}
 
       {/* Strongs Popup */}
@@ -472,7 +471,6 @@ function SettingsModal({ darkMode, onClose }: { darkMode: boolean; onClose: () =
 }
 
 const BOOKMARKS_PAGE = 100;
-const NOTES_PAGE = 100;
 
 function BookmarkPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose: () => void }) {
   const [bookmarks, setBookmarks] = useState<BookmarkWithVerse[]>([]);
@@ -576,318 +574,6 @@ function BookmarkPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose:
   );
 }
 
-function NotesPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose: () => void }) {
-  const [notes, setNotes] = useState<TauriNote[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [editingNote, setEditingNote] = useState<TauriNote | null>(null);
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showExportMenu, setShowExportMenu] = useState(false);
-  const trapRef = useFocusTrap<HTMLDivElement>();
-
-  const fetchPage = async (offset: number, replace: boolean) => {
-    try {
-      if (replace) setLoading(true);
-      else setLoadingMore(true);
-      setError(null);
-      const data = await getNotes(undefined, NOTES_PAGE, offset);
-      setTotal(data.total);
-      setNotes((prev) => (replace ? data.items : [...prev, ...data.items]));
-    } catch (e) {
-      setError('Failed to load notes.');
-      console.error(e);
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-    }
-  };
-
-  useEffect(() => { fetchPage(0, true); }, []);
-
-  const handleDelete = async (id: number) => {
-    try {
-      await deleteNote(id);
-      // Optimistic local removal — saves a round-trip and avoids
-      // resetting the user's scroll position back to the top.
-      setNotes((prev) => prev.filter((n) => n.id !== id));
-      setTotal((t) => Math.max(0, t - 1));
-    } catch (e) {
-      console.error('Failed to delete note:', e);
-    }
-  };
-
-  const handleNoteSuccess = (saved: TauriNote) => {
-    if (editingNote) {
-      setNotes((prev) => prev.map((n) => (n.id === saved.id ? saved : n)));
-      setEditingNote(null);
-    } else {
-      setNotes((prev) => [saved, ...prev]);
-      setTotal((t) => t + 1);
-      setShowCreateForm(false);
-    }
-  };
-
-  // Filter notes based on search query
-  const filteredNotes = searchQuery.trim()
-    ? notes.filter(note => {
-        const query = searchQuery.toLowerCase();
-        const titleMatch = note.title?.toLowerCase().includes(query) ?? false;
-        const contentMatch = note.content.toLowerCase().includes(query);
-        const tagsMatch = note.tags?.some(tag => tag.toLowerCase().includes(query)) ?? false;
-        return titleMatch || contentMatch || tagsMatch;
-      })
-    : notes;
-
-  // Handle export
-  const handleExport = async (format: 'json' | 'csv') => {
-    try {
-      setShowExportMenu(false);
-      const data = await exportNotesAndBookmarks();
-      
-      if (format === 'json') {
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `aletheia-export-${new Date().toISOString().split('T')[0]}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      } else {
-        // CSV export. Spreadsheets technically support multi-line CSV cells
-        // when properly quoted, but every "Open in Excel"-grade tool and
-        // every grep-based pipeline still mishandles them — collapse any
-        // newlines into a single space so each row stays one line.
-        const csvCell = (raw: string | null | undefined): string =>
-          (raw ?? '').replace(/[\r\n]+/g, ' ').replace(/"/g, '""');
-
-        const lines: string[] = [];
-        lines.push('Type,ID,Title,Content,Tags,Verse Reference,Created,Updated');
-
-        for (const note of data.notes) {
-          const title = csvCell(note.title);
-          const content = csvCell(note.content);
-          const tags = csvCell((note.tags || []).join('; '));
-          const verseRef = csvCell(note.verse_ref);
-          lines.push(`Note,${note.id},"${title}","${content}","${tags}","${verseRef}",${note.created_at},${note.updated_at}`);
-        }
-
-        for (const bm of data.bookmarks) {
-          const label = csvCell(bm.label);
-          const verseText = csvCell(bm.verse_text);
-          const verseRef = csvCell(bm.verse_ref);
-          lines.push(`Bookmark,${bm.id},"${label}","${verseText}","","${verseRef}",${bm.created_at},`);
-        }
-        
-        const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `aletheia-export-${new Date().toISOString().split('T')[0]}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }
-    } catch (e) {
-      console.error('Failed to export:', e);
-      alert('Failed to export data.');
-    }
-  };
-
-  // Render create/edit form
-  if (showCreateForm || editingNote) {
-    // Note: the backdrop intentionally does NOT close the form on click.
-    // Users were losing in-progress notes by clicking near the panel
-    // edge; the X button, the Cancel button on NoteForm, and the Escape
-    // key are the explicit dismiss paths.
-    return (
-      <div
-        className="modal-backdrop"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="modal-note-form-title"
-      >
-        <div ref={trapRef} className="modal-panel" style={{ maxWidth: '32rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <h2 id="modal-note-form-title" style={{ margin: 0, fontWeight: 700 }}>{editingNote ? 'Edit Note' : 'New Note'}</h2>
-            <button onClick={() => { setShowCreateForm(false); setEditingNote(null); }} aria-label="Close note form" style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-            </button>
-          </div>
-          <NoteForm
-            note={editingNote ?? undefined}
-            verseId={null}
-            onSuccess={handleNoteSuccess}
-            onCancel={() => { setShowCreateForm(false); setEditingNote(null); }}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className="modal-backdrop"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="modal-notes-title"
-    >
-      <div ref={trapRef} className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '32rem', maxHeight: '80vh' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h2 id="modal-notes-title" style={{ margin: 0, fontWeight: 700 }}>
-            Notes ({searchQuery ? `${filteredNotes.length} of ${notes.length}` : `${notes.length}${notes.length < total ? ` of ${total}` : ''}`})
-          </h2>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            {/* Export dropdown */}
-            <div style={{ position: 'relative' }}>
-              <button 
-                onClick={() => setShowExportMenu(!showExportMenu)} 
-                style={{ padding: '0.375rem 0.75rem', borderRadius: '8px', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}`, backgroundColor: 'transparent', color: darkMode ? '#f5f5f4' : '#292524', cursor: 'pointer', fontWeight: 600, fontSize: '0.75rem' }}
-              >
-                Export ▾
-              </button>
-              {showExportMenu && (
-                <div style={{ 
-                  position: 'absolute', 
-                  top: '100%', 
-                  right: 0, 
-                  marginTop: '0.25rem',
-                  backgroundColor: darkMode ? '#252519' : '#fff',
-                  border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}`,
-                  borderRadius: '8px',
-                  boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
-                  zIndex: 10,
-                  minWidth: '120px'
-                }}>
-                  <button 
-                    onClick={() => handleExport('json')}
-                    style={{ 
-                      display: 'block', 
-                      width: '100%', 
-                      padding: '0.5rem 0.75rem', 
-                      textAlign: 'left',
-                      background: 'none', 
-                      border: 'none', 
-                      cursor: 'pointer', 
-                      color: darkMode ? '#f5f5f4' : '#292524',
-                      fontSize: '0.8rem'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = darkMode ? '#3c3a36' : '#f5f5f4'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                  >
-                    Export as JSON
-                  </button>
-                  <button 
-                    onClick={() => handleExport('csv')}
-                    style={{ 
-                      display: 'block', 
-                      width: '100%', 
-                      padding: '0.5rem 0.75rem', 
-                      textAlign: 'left',
-                      background: 'none', 
-                      border: 'none', 
-                      cursor: 'pointer', 
-                      color: darkMode ? '#f5f5f4' : '#292524',
-                      fontSize: '0.8rem'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = darkMode ? '#3c3a36' : '#f5f5f4'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                  >
-                    Export as CSV
-                  </button>
-                </div>
-              )}
-            </div>
-            <button onClick={() => setShowCreateForm(true)} style={{ padding: '0.375rem 0.75rem', borderRadius: '8px', border: 'none', backgroundColor: '#92400e', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '0.75rem' }}>
-              + New Note
-            </button>
-            <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-            </button>
-          </div>
-        </div>
-        
-        {/* Search input */}
-        <div style={{ marginBottom: '1rem' }}>
-          <input
-            type="text"
-            placeholder="Search notes..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '0.5rem 0.75rem',
-              borderRadius: '8px',
-              border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}`,
-              backgroundColor: darkMode ? '#1a1a14' : '#fff',
-              color: darkMode ? '#f5f5f4' : '#292524',
-              fontSize: '0.875rem',
-              boxSizing: 'border-box'
-            }}
-          />
-        </div>
-        
-        {loading ? (
-          <p style={{ textAlign: 'center', padding: '2rem', color: darkMode ? '#a8a29e' : '#78716c' }}>Loading…</p>
-        ) : error ? (
-          <p style={{ textAlign: 'center', padding: '2rem', color: '#dc2626' }}>{error}</p>
-        ) : filteredNotes.length === 0 ? (
-          searchQuery ? (
-            <p style={{ textAlign: 'center', padding: '2rem', color: darkMode ? '#a8a29e' : '#78716c' }}>No notes match your search.</p>
-          ) : (
-            <p style={{ textAlign: 'center', padding: '2rem', color: darkMode ? '#a8a29e' : '#78716c' }}>No notes yet. Click "+ New Note" to create one.</p>
-          )
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '50vh', overflowY: 'auto' }}>
-            {filteredNotes.map((note) => (
-              <div key={note.id} style={{ padding: '0.875rem', borderRadius: '8px', backgroundColor: darkMode ? '#1a1a14' : '#fefce8', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.375rem' }}>
-                  <h3 style={{ margin: 0, fontWeight: 600, fontSize: '0.9rem' }}>{note.title || 'Untitled'}</h3>
-                  <div style={{ display: 'flex', gap: '0.375rem' }}>
-                    <button onClick={() => setEditingNote(note)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c', fontSize: '0.75rem' }}>Edit</button>
-                    <button onClick={() => handleDelete(note.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: '0.75rem' }}>Delete</button>
-                  </div>
-                </div>
-                <p style={{ margin: 0, fontSize: '0.85rem', color: darkMode ? '#a8a29e' : '#78716c', lineHeight: 1.5 }}>{note.content}</p>
-                {(note.tags ?? []).length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.5rem' }}>
-                    {(note.tags ?? []).map((tag) => (
-                      <span key={tag} style={{ fontSize: '0.65rem', padding: '0.125rem 0.5rem', borderRadius: '9999px', backgroundColor: darkMode ? '#2d2d24' : '#f5f5f4', color: darkMode ? '#a8a29e' : '#78716c' }}>#{tag}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-            {!searchQuery && notes.length < total && (
-              <button
-                onClick={() => fetchPage(notes.length, false)}
-                disabled={loadingMore}
-                style={{
-                  marginTop: '0.5rem',
-                  padding: '0.5rem 0.75rem',
-                  borderRadius: '8px',
-                  border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}`,
-                  backgroundColor: 'transparent',
-                  color: darkMode ? '#a8a29e' : '#78716c',
-                  cursor: loadingMore ? 'wait' : 'pointer',
-                  fontSize: '0.8rem',
-                }}
-              >
-                {loadingMore ? 'Loading…' : `Load more (${total - notes.length} remaining)`}
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function StrongsPopupModal({ data, darkMode, onClose, onOpenAi }: { data: { word: string; strongsId: string; language: string }; darkMode: boolean; onClose: () => void; onOpenAi: (wordContext: WordContext) => void }) {
   const [loading, setLoading] = useState(true);
