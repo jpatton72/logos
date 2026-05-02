@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { getPreference, hasApiKey } from '../lib/tauri';
 import { aiChat, ChatMessage } from '../lib/ai';
@@ -65,22 +64,25 @@ function buildSystemPrompt(verses: VerseRef[], word?: WordContext): string {
 }
 
 export function AiPanel({ verses = [], wordContext, onClose, onDeselectAll }: AiPanelProps) {
-  // Conversation state lives in the Zustand store so closing the panel
-  // (or navigating to another route via the home button) doesn't wipe
-  // the conversation. The current input draft + scroll position stay
-  // local — those are genuinely transient. See store comment for the
-  // rationale on not persisting to disk.
+  // Conversation state + the half-typed question both live in the
+  // Zustand store so neither survives only as long as the AiPanel
+  // component instance. Closing the panel, navigating to another
+  // route, and the home button all unmount AiPanel; the store keeps
+  // everything intact until the user clicks Clear or the app restarts.
+  // See the store comment on `aiMessages` for why we don't persist
+  // chat content to disk.
   const {
     darkMode,
     clearVerseSelection,
     aiMessages: messages,
     aiLoading: loading,
+    aiQuestion: question,
     appendAiMessage,
     setAiLoading,
+    setAiQuestion: setQuestion,
     clearAiConversation,
   } = useAppStore();
   const deselectAll = onDeselectAll ?? clearVerseSelection;
-  const [question, setQuestion] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -263,6 +263,7 @@ function AppInner() {
         onOpenNotes={() => setShowNotes(true)}
         onOpenCompare={() => navigate('/compare')}
         onOpenLexicon={() => navigate('/lexicon')}
+        onOpenSearch={() => navigate('/search')}
         onGoHome={() => {
           // Close any open transient UI but leave the user's reading
           // position, active translations, and verse selection alone —
@@ -700,15 +701,18 @@ function NotesPanelModal({ darkMode, onClose }: { darkMode: boolean; onClose: ()
 
   // Render create/edit form
   if (showCreateForm || editingNote) {
+    // Note: the backdrop intentionally does NOT close the form on click.
+    // Users were losing in-progress notes by clicking near the panel
+    // edge; the X button, the Cancel button on NoteForm, and the Escape
+    // key are the explicit dismiss paths.
     return (
       <div
         className="modal-backdrop"
-        onClick={onClose}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-note-form-title"
       >
-        <div ref={trapRef} className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '32rem' }}>
+        <div ref={trapRef} className="modal-panel" style={{ maxWidth: '32rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <h2 id="modal-note-form-title" style={{ margin: 0, fontWeight: 700 }}>{editingNote ? 'Edit Note' : 'New Note'}</h2>
             <button onClick={() => { setShowCreateForm(false); setEditingNote(null); }} aria-label="Close note form" style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a8a29e' : '#78716c' }}>

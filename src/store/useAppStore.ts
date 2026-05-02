@@ -68,6 +68,9 @@ interface AppState {
   // explicitly via clearAiConversation() or fresh on app restart.
   aiMessages: ChatMessage[];
   aiLoading: boolean;
+  // Current input draft. Lives in the store too so a half-typed
+  // question survives panel close + reopen.
+  aiQuestion: string;
   // Actions
   setBook: (book: string) => void;
   setChapter: (chapter: number) => void;
@@ -78,6 +81,7 @@ interface AppState {
   ensureChapterCounts: () => Promise<Record<string, number>>;
   appendAiMessage: (msg: ChatMessage) => void;
   setAiLoading: (loading: boolean) => void;
+  setAiQuestion: (q: string) => void;
   clearAiConversation: () => void;
   addTranslation: (trans: string) => void;
   removeTranslation: (trans: string) => void;
@@ -114,6 +118,7 @@ export const useAppStore = create<AppState>()(
       chapterCounts: {},
       aiMessages: [],
       aiLoading: false,
+      aiQuestion: '',
 
       // Navigation does NOT clear the verse selection — the whole point of
       // the persistent selection is to let the user gather verses from
@@ -240,7 +245,8 @@ export const useAppStore = create<AppState>()(
       setFontSize: (size) => set({ fontSize: size }),
       appendAiMessage: (msg) => set((s) => ({ aiMessages: [...s.aiMessages, msg] })),
       setAiLoading: (loading) => set({ aiLoading: loading }),
-      clearAiConversation: () => set({ aiMessages: [], aiLoading: false }),
+      setAiQuestion: (q) => set({ aiQuestion: q }),
+      clearAiConversation: () => set({ aiMessages: [], aiLoading: false, aiQuestion: '' }),
     }),
     {
       // Renamed from 'logos-app-state' for the Aletheia rebrand. The
