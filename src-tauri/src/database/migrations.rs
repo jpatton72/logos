@@ -293,6 +293,32 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
         [],
     )?;
 
+    // Saved AI conversations. Each row is one chat thread the user has
+    // built up in the AI panel. Messages are stored as a JSON array;
+    // the verse_context / word_context columns capture what was
+    // selected when the chat started so the UI can re-render the
+    // surrounding state if the user reloads the chat. Auto-saved on
+    // every assistant turn — Discard removes the row, Clear just
+    // resets the in-memory chat without touching saved history.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS ai_conversations (
+            id INTEGER PRIMARY KEY,
+            title TEXT,
+            messages TEXT NOT NULL,
+            verse_context TEXT,
+            word_context TEXT,
+            provider TEXT,
+            model TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ai_conversations_updated ON ai_conversations(updated_at DESC)",
+        [],
+    )?;
+
     info!("Database migrations completed successfully");
     Ok(())
 }
@@ -301,4 +327,5 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
 ///   1 = initial release
 ///   2 = books.testament CHECK relaxed to allow 'apoc'
 ///   3 = added english_strongs_index for KJV->Strong's lookup
-pub const CURRENT_SCHEMA: i32 = 3;
+///   4 = added ai_conversations for AI chat history
+pub const CURRENT_SCHEMA: i32 = 4;

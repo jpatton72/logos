@@ -71,6 +71,11 @@ interface AppState {
   // Current input draft. Lives in the store too so a half-typed
   // question survives panel close + reopen.
   aiQuestion: string;
+  // Rowid of the row in `ai_conversations` that the active chat is
+  // being auto-saved to. `null` means "haven't sent a turn yet" —
+  // the first save inserts a new row and sets this; subsequent saves
+  // update that same row.
+  currentConversationId: number | null;
   // One-shot scroll target. Set by Search (and any future deep-link
   // source) when the user clicks a verse result; consumed by
   // ChapterView once the requested chapter has rendered. The verse
@@ -87,6 +92,8 @@ interface AppState {
   appendAiMessage: (msg: ChatMessage) => void;
   setAiLoading: (loading: boolean) => void;
   setAiQuestion: (q: string) => void;
+  setAiMessages: (msgs: ChatMessage[]) => void;
+  setCurrentConversationId: (id: number | null) => void;
   clearAiConversation: () => void;
   setPendingScrollVerse: (target: { book: string; chapter: number; verseNum: number } | null) => void;
   addTranslation: (trans: string) => void;
@@ -125,6 +132,7 @@ export const useAppStore = create<AppState>()(
       aiMessages: [],
       aiLoading: false,
       aiQuestion: '',
+      currentConversationId: null,
       pendingScrollVerse: null,
 
       // Navigation does NOT clear the verse selection — the whole point of
@@ -253,7 +261,12 @@ export const useAppStore = create<AppState>()(
       appendAiMessage: (msg) => set((s) => ({ aiMessages: [...s.aiMessages, msg] })),
       setAiLoading: (loading) => set({ aiLoading: loading }),
       setAiQuestion: (q) => set({ aiQuestion: q }),
-      clearAiConversation: () => set({ aiMessages: [], aiLoading: false, aiQuestion: '' }),
+      setAiMessages: (msgs) => set({ aiMessages: msgs }),
+      setCurrentConversationId: (id) => set({ currentConversationId: id }),
+      // "Start a new chat" — drops the in-memory thread but does NOT
+      // delete any saved row in `ai_conversations`. Past saves remain
+      // accessible via the history view.
+      clearAiConversation: () => set({ aiMessages: [], aiLoading: false, aiQuestion: '', currentConversationId: null }),
       setPendingScrollVerse: (target) => set({ pendingScrollVerse: target }),
     }),
     {

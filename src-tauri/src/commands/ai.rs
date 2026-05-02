@@ -1,8 +1,8 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::ai::{chat_with_provider, ChatMessage, RateLimiter};
-use crate::database::Database;
+use crate::database::{queries, AiConversation, AiConversationSummary, Database};
 use crate::secrets;
 
 #[derive(Deserialize)]
@@ -78,4 +78,77 @@ pub fn has_api_key(provider: String) -> Result<bool, String> {
 #[tauri::command]
 pub fn delete_api_key(provider: String) -> Result<(), String> {
     secrets::delete_api_key(&provider).map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// AI conversation history
+// ---------------------------------------------------------------------------
+
+/// Upsert an AI conversation. `id = None` creates a new row and returns
+/// its rowid; `id = Some(...)` replaces the body of an existing row.
+/// Auto-saved on every assistant turn from the frontend so closing the
+/// panel or quitting the app doesn't lose work.
+#[tauri::command]
+pub fn save_ai_conversation(
+    db: State<'_, Database>,
+    id: Option<i64>,
+    title: Option<String>,
+    messages_json: String,
+    verse_context_json: Option<String>,
+    word_context_json: Option<String>,
+    provider: Option<String>,
+    model: Option<String>,
+) -> Result<i64, String> {
+    queries::save_ai_conversation(
+        &db,
+        id,
+        title.as_deref(),
+        &messages_json,
+        verse_context_json.as_deref(),
+        word_context_json.as_deref(),
+        provider.as_deref(),
+        model.as_deref(),
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+pub struct PaginatedAiConversations {
+    pub items: Vec<AiConversationSummary>,
+    pub total: i64,
+}
+
+#[tauri::command]
+pub fn list_ai_conversations(
+    db: State<'_, Database>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> Result<PaginatedAiConversations, String> {
+    let effective_limit = limit.or(Some(100));
+    let items = queries::list_ai_conversations(&db, effective_limit, offset)
+        .map_err(|e| e.to_string())?;
+    let total = queries::count_ai_conversations(&db).map_err(|e| e.to_string())?;
+    Ok(PaginatedAiConversations { items, total })
+}
+
+#[tauri::command]
+pub fn get_ai_conversation(
+    db: State<'_, Database>,
+    id: i64,
+) -> Result<Option<AiConversation>, String> {
+    queries::get_ai_conversation(&db, id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_ai_conversation(db: State<'_, Database>, id: i64) -> Result<(), String> {
+    queries::delete_ai_conversation(&db, id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_ai_conversation_title(
+    db: State<'_, Database>,
+    id: i64,
+    title: Option<String>,
+) -> Result<(), String> {
+    queries::update_ai_conversation_title(&db, id, title.as_deref()).map_err(|e| e.to_string())
 }

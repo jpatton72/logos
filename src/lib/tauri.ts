@@ -453,6 +453,86 @@ export async function deleteApiKey(provider: string): Promise<void> {
 }
 
 // ============================================================================
+// AI Conversation History Commands
+// ============================================================================
+
+/** Full body of a saved AI conversation. `messages` and the *_context
+ *  fields are JSON strings (the renderer parses them — keeping the
+ *  shape opaque to Rust avoids a type-duplication round trip). */
+export interface AiConversation {
+  id: number;
+  title: string | null;
+  messages: string;             // JSON-encoded ChatMessage[]
+  verse_context: string | null; // JSON-encoded VerseRef[] or null
+  word_context: string | null;  // JSON-encoded WordContext or null
+  provider: string | null;
+  model: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Compact summary used in the history list. */
+export interface AiConversationSummary {
+  id: number;
+  title: string | null;
+  preview: string;
+  message_count: number;
+  provider: string | null;
+  model: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PaginatedAiConversations {
+  items: AiConversationSummary[];
+  total: number;
+}
+
+/** Upsert a conversation. Pass `id` to overwrite an existing row, or
+ *  omit it for a new row (returns the freshly-allocated rowid). */
+export async function saveAiConversation(opts: {
+  id?: number;
+  title?: string | null;
+  messagesJson: string;
+  verseContextJson?: string | null;
+  wordContextJson?: string | null;
+  provider?: string | null;
+  model?: string | null;
+}): Promise<number> {
+  return invoke<number>("save_ai_conversation", {
+    id: opts.id ?? null,
+    title: opts.title ?? null,
+    messagesJson: opts.messagesJson,
+    verseContextJson: opts.verseContextJson ?? null,
+    wordContextJson: opts.wordContextJson ?? null,
+    provider: opts.provider ?? null,
+    model: opts.model ?? null,
+  });
+}
+
+export async function listAiConversations(
+  limit?: number,
+  offset?: number,
+): Promise<PaginatedAiConversations> {
+  return invoke<PaginatedAiConversations>("list_ai_conversations", {
+    limit: limit ?? null,
+    offset: offset ?? null,
+  });
+}
+
+export async function getAiConversation(id: number): Promise<AiConversation | null> {
+  return invoke<AiConversation | null>("get_ai_conversation", { id });
+}
+
+export async function deleteAiConversation(id: number): Promise<void> {
+  return invoke<void>("delete_ai_conversation", { id });
+}
+
+export async function updateAiConversationTitle(id: number, title: string | null): Promise<void> {
+  return invoke<void>("update_ai_conversation_title", { id, title });
+}
+
+// ============================================================================
 // Progress Commands
 // ============================================================================
 

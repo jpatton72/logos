@@ -143,6 +143,40 @@ pub struct WordMapping {
     pub language: String,
 }
 
+/// One saved AI conversation. Messages, verse_context, and word_context
+/// are stored as JSON strings on the Rust side and forwarded as-is to
+/// the frontend; the renderer parses them back into typed objects. We
+/// don't try to model `ChatMessage` etc. here because the schema lives
+/// in `lib/ai.ts` on the JS side and round-tripping through Rust types
+/// adds zero value.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AiConversation {
+    pub id: i64,
+    pub title: Option<String>,
+    pub messages: String,         // JSON-encoded ChatMessage[]
+    pub verse_context: Option<String>,  // JSON-encoded VerseRef[] or null
+    pub word_context: Option<String>,   // JSON-encoded WordContext or null
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Compact conversation summary for list views — the full `messages`
+/// blob can be tens of KB on a long chat, so the list query returns
+/// just a snippet (first ~120 chars of the first user message).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AiConversationSummary {
+    pub id: i64,
+    pub title: Option<String>,
+    pub preview: String,
+    pub message_count: i32,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 /// One row of the English-to-Strong's lookup. Returned ranked by
 /// `frequency` (descending) so the top hit is the most likely match for
 /// the queried English word.
@@ -940,6 +974,143 @@ pub fn lookup_english_term(
         })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
+}
+
+// ============================================================================
+// AI Conversations
+// ============================================================================
+
+/// Upserts a conversation. Pass `id = None` for a new chat (returns the
+/// freshly-allocated rowid); pass `id = Some(...)` to overwrite an
+/// existing row's body. Updates `updated_at` on every call so the list
+/// view's "most recent" sort stays accurate.
+pub fn save_ai_conversation(
+    db: &Database,
+    id: Option<i64>,
+    title: Option<&str>,
+    messages_json: &str,
+    verse_context_json: Option<&str>,
+    word_context_json: Option<&str>,
+    provider: Option<&str>,
+    model: Option<&str>,
+) -> SqliteResult<i64> {
+    let conn = db.conn.lock().unwrap();
+    if let Some(existing_id) = id {
+        conn.execute(
+            "UPDATE ai_conversations
+             SET title = ?, messages = ?, verse_context = ?, word_context = ?,
+                 provider = ?, model = ?, updated_at = datetime('now')
+             WHERE id = ?",
+            params![title, messages_json, verse_context_json, word_context_json, provider, model, existing_id],
+        )?;
+        Ok(existing_id)
+    } else {
+        conn.execute(
+            "INSERT INTO ai_conversations (title, messages, verse_context, word_context, provider, model)
+             VALUES (?, ?, ?, ?, ?, ?)",
+            params![title, messages_json, verse_context_json, word_context_json, provider, model],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+}
+
+pub fn list_ai_conversations(
+    db: &Database,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> SqliteResult<Vec<AiConversationSummary>> {
+    let conn = db.conn.lock().unwrap();
+    let lim: i64 = limit.filter(|n| *n > 0).map(|n| n as i64).unwrap_or(-1);
+    let off: i64 = offset.unwrap_or(0) as i64;
+    let mut stmt = conn.prepare(
+        "SELECT id, title, messages, provider, model, created_at, updated_at
+         FROM ai_conversations
+         ORDER BY updated_at DESC
+         LIMIT ? OFFSET ?",
+    )?;
+    let rows = stmt
+        .query_map(params![lim, off], |row| {
+            let id: i64 = row.get(0)?;
+            let title: Option<String> = row.get(1)?;
+            let messages_json: String = row.get(2)?;
+            let provider: Option<String> = row.get(3)?;
+            let model: Option<String> = row.get(4)?;
+            let created_at: String = row.get(5)?;
+            let updated_at: String = row.get(6)?;
+            // Pull the first user message's content as the preview.
+            // Best-effort: malformed JSON yields an empty preview rather
+            // than a query error.
+            let parsed: Option<serde_json::Value> = serde_json::from_str(&messages_json).ok();
+            let mut preview = String::new();
+            let mut count: i32 = 0;
+            if let Some(serde_json::Value::Array(arr)) = parsed {
+                count = arr.len() as i32;
+                for m in &arr {
+                    if m.get("role").and_then(|r| r.as_str()) == Some("user") {
+                        if let Some(c) = m.get("content").and_then(|c| c.as_str()) {
+                            preview = c.chars().take(120).collect();
+                            break;
+                        }
+                    }
+                }
+            }
+            Ok(AiConversationSummary {
+                id,
+                title,
+                preview,
+                message_count: count,
+                provider,
+                model,
+                created_at,
+                updated_at,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+pub fn count_ai_conversations(db: &Database) -> SqliteResult<i64> {
+    let conn = db.conn.lock().unwrap();
+    conn.query_row("SELECT COUNT(*) FROM ai_conversations", [], |r| r.get(0))
+}
+
+pub fn get_ai_conversation(db: &Database, id: i64) -> SqliteResult<Option<AiConversation>> {
+    let conn = db.conn.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT id, title, messages, verse_context, word_context, provider, model, created_at, updated_at
+         FROM ai_conversations WHERE id = ?",
+    )?;
+    let mut rows = stmt.query(params![id])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(AiConversation {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            messages: row.get(2)?,
+            verse_context: row.get(3)?,
+            word_context: row.get(4)?,
+            provider: row.get(5)?,
+            model: row.get(6)?,
+            created_at: row.get(7)?,
+            updated_at: row.get(8)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn delete_ai_conversation(db: &Database, id: i64) -> SqliteResult<()> {
+    let conn = db.conn.lock().unwrap();
+    conn.execute("DELETE FROM ai_conversations WHERE id = ?", params![id])?;
+    Ok(())
+}
+
+pub fn update_ai_conversation_title(db: &Database, id: i64, title: Option<&str>) -> SqliteResult<()> {
+    let conn = db.conn.lock().unwrap();
+    conn.execute(
+        "UPDATE ai_conversations SET title = ?, updated_at = datetime('now') WHERE id = ?",
+        params![title, id],
+    )?;
+    Ok(())
 }
 
 // ============================================================================
