@@ -11,7 +11,8 @@ pub mod secrets;
 use commands::{
     ai_chat, compare_verses, create_bookmark, create_note, delete_ai_conversation,
     delete_api_key, delete_bookmark, delete_note, export_notes_and_bookmarks, get_ai_conversation,
-    get_book_index, get_bookmarks, get_chapter, get_chapter_counts, get_chapter_originals,
+    get_book_index, get_bookmarks, get_chapter, get_chapter_counts,
+    get_chapter_english_alignment, get_chapter_originals,
     get_ketiv_qere, get_notes, get_preference, get_reading_progress, get_strongs_greek,
     get_strongs_hebrew, get_verse, get_verse_words, has_api_key, list_ai_conversations,
     lookup_english_term, populate_terms_fts, save_ai_conversation, search_notes, search_terms,
@@ -197,6 +198,7 @@ pub fn run() {
             get_chapter,
             get_book_index,
             get_chapter_counts,
+            get_chapter_english_alignment,
             search_verses,
             search_terms,
             create_bookmark,

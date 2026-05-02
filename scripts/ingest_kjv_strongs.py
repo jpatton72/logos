@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
-"""Build the english_strongs_index table from eBible.org's KJV2006 USFM.
+"""Build KJV<->Strong's data from eBible.org's KJV2006 USFM.
 
-For every Strong's-tagged English word in the KJV, we record (english_word,
-strongs_id) pairs along with their frequency and one example reference. The
-Lexicon page's English-lookup feature uses this to rank Strong's candidates
-for a given English word.
+Two outputs:
+
+1. `english_strongs_index` — aggregate (english_word, strongs_id) ->
+   frequency map used by the Lexicon's English-lookup feature.
+2. `english_word_alignment` — per-verse JSON token list used by the
+   reader's hover-to-highlight feature. Rows are
+   (verse_id, tokens_json) where tokens is an ordered array of
+   `{w: string, s?: string[]}` covering every word and punctuation
+   mark in the verse so the renderer can reconstruct the line.
 
 Source: https://ebible.org/Scriptures/eng-kjv2006_usfm.zip
-License: Public Domain (KJV text + Strong's tags both PD; eBible adds no
-         restrictions beyond UK Crown Letters Patent which only apply
-         inside the UK).
+License: Public Domain (KJV text + Strong's tags both PD; eBible adds
+         no restrictions beyond UK Crown Letters Patent which only
+         apply inside the UK).
 
-Default database paths (mirrors src-tauri/src/lib.rs::get_app_data_dir):
+Default database paths (mirror src-tauri/src/lib.rs::get_app_data_dir):
   - Linux:   ~/.local/share/aletheia/Aletheia/data/aletheia.db
   - macOS:   ~/Library/Application Support/aletheia/Aletheia/data/aletheia.db
   - Windows: %APPDATA%/aletheia/Aletheia/data/aletheia.db
@@ -20,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import os
 import platform
 import re
@@ -59,13 +65,22 @@ USFM_TO_DB = {
     "1JN": "1John", "2JN": "2John", "3JN": "3John", "JUD": "Jude", "REV": "Rev",
 }
 
-# The agent confirmed both `\w word|strong="H0430"\w*` and the nested
-# red-letter `\+w word|strong="G2316"\+w*` form appear; this single
-# pattern catches both. Word may contain punctuation/spaces internally
-# (e.g. "the world") so we accept everything up to the next pipe.
-WORD_PATTERN = re.compile(
-    r'\\\+?w\s+([^|\\]+?)\|strong="([HG]\d{4})"\\\+?w\*'
+# Master tokenizer: a single alternation that walks each verse's content
+# and yields tagged words, USFM markers (skipped), and plain text. The
+# greedy plain-text branch only matches non-backslash runs so it can't
+# swallow USFM markers; ordering matters — the tagged-word branch must
+# precede the generic-marker branch.
+COMBINED_TOKEN_RE = re.compile(
+    r'\\\+?w\s+([^|\\]+?)\|strong="([HG]\d{4})"\\\+?w\*'   # 1=word 2=strongs
+    r'|\\[a-zA-Z]+\d*\*?'                                    # USFM marker (skip)
+    r'|[^\\]+'                                                # plain text
 )
+# Words = ASCII letter run optionally followed by letters/digits/apostrophes/hyphens.
+# Punctuation = any single non-space, non-letter, non-digit char (commas,
+# colons, em-dashes, quote marks). We deliberately don't merge runs of
+# punctuation: it's rare and the renderer joins adjacent tokens cleanly.
+PLAIN_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9’‘'-]*")
+PUNCT_RE = re.compile(r"[\.\,\:\;\?\!—–\(\)\[\]\"“”\-]")
 FOOTNOTE_PATTERN = re.compile(r"\\f .*?\\f\*", re.DOTALL)
 ADD_PATTERN = re.compile(r"\\add\s+(.+?)\\add\*", re.DOTALL)
 
@@ -91,17 +106,6 @@ def normalize_strongs(raw: str) -> str:
     return f"{prefix}{digits}"
 
 
-def normalize_word(raw: str) -> str:
-    """Lowercase and strip non-letter trim. Internal hyphens / apostrophes
-    stay (lovingkindness, doest, knowest). Multi-word phrases like "the
-    world" stay as one entry — they're rare but real in the source and
-    we'd rather over-index than throw them away."""
-    w = raw.strip().lower()
-    # Remove leading/trailing punctuation (commas, semicolons, periods,
-    # colons, brackets) but keep word-internal apostrophes and hyphens.
-    return re.sub(r"^[^\w]+|[^\w]+$", "", w)
-
-
 def fetch_usfm_zip(cache_path: Path) -> bytes:
     if cache_path.exists():
         data = cache_path.read_bytes()
@@ -122,60 +126,96 @@ def fetch_usfm_zip(cache_path: Path) -> bytes:
     return payload
 
 
-def parse_usfm_member(text: str, db_book_id: int, language: str):
-    """Yield (book_id, chapter, verse, word_lower, strongs_normalized)
-    for every Strong's-tagged word in this book's USFM file. `language`
-    is decided by testament (OT books -> hebrew, NT books -> greek);
-    we don't try to detect from the Strong's prefix because the file
-    itself is canonical."""
+def tokenize_verse_payload(payload: str) -> list[dict]:
+    """Returns an ordered list of {w: str, s?: list[str]} dicts covering
+    the whole verse line — tagged words come from `\\w...\\w*` markers,
+    everything else is plain words and punctuation. The renderer joins
+    adjacent tokens with spaces (skipping leading spaces before
+    punctuation) to reconstruct the verse text."""
+    tokens: list[dict] = []
+    for m in COMBINED_TOKEN_RE.finditer(payload):
+        if m.group(1) is not None:
+            word = m.group(1).strip()
+            if word:
+                tokens.append({"w": word, "s": [normalize_strongs(m.group(2))]})
+            continue
+        chunk = m.group(0)
+        if chunk.startswith("\\"):
+            continue  # USFM marker we don't render — \nd, \wj, \q, \p, etc.
+        # Plain text run: extract words and single-char punctuation.
+        i = 0
+        n = len(chunk)
+        while i < n:
+            c = chunk[i]
+            if c.isspace():
+                i += 1
+                continue
+            wm = PLAIN_WORD_RE.match(chunk, i)
+            if wm:
+                tokens.append({"w": wm.group(0)})
+                i = wm.end()
+                continue
+            pm = PUNCT_RE.match(chunk, i)
+            if pm:
+                tokens.append({"w": pm.group(0)})
+                i = pm.end()
+                continue
+            # Unknown character — skip silently.
+            i += 1
+    return tokens
+
+
+def parse_usfm_book(text: str):
+    """Yield (chapter, verse, tokens) for every verse in a book file."""
     text = FOOTNOTE_PATTERN.sub(" ", text)
     text = ADD_PATTERN.sub(r"\1", text)
 
     chapter = 0
-    verse = 0
+    current_verse: int | None = None
+    current_payload: list[str] = []
+
+    def flush():
+        if current_verse is not None and chapter > 0:
+            payload = " ".join(current_payload)
+            yield (chapter, current_verse, tokenize_verse_payload(payload))
+
     for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
         if line.startswith("\\c "):
+            # Flush previous verse, advance chapter.
+            yield from flush()
+            current_verse = None
+            current_payload = []
             try:
                 chapter = int(line.split()[1])
             except (IndexError, ValueError):
                 pass
-            verse = 0
             continue
         if line.startswith("\\v "):
-            # \v 1 In the \w beginning|strong="H7225"\w* ...
+            yield from flush()
+            current_verse = None
+            current_payload = []
             parts = line.split(None, 2)
             try:
-                verse = int(parts[1])
+                current_verse = int(parts[1])
             except (IndexError, ValueError):
                 continue
-            payload = parts[2] if len(parts) > 2 else ""
-        else:
-            # Continuation of the current verse on a new line.
-            payload = line
-
-        if chapter == 0 or verse == 0:
+            if len(parts) > 2:
+                current_payload.append(parts[2])
             continue
+        # Continuation line of the current verse.
+        current_payload.append(line)
 
-        for word_raw, strongs_raw in WORD_PATTERN.findall(payload):
-            word = normalize_word(word_raw)
-            if not word:
-                continue
-            yield (db_book_id, chapter, verse, word, normalize_strongs(strongs_raw))
-
-
-def language_for_book(db_book_id: int) -> str:
-    return "hebrew" if db_book_id <= 39 else "greek"
+    # Flush the trailing verse.
+    yield from flush()
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
-    """Creates english_strongs_index if missing. The Rust app's startup
-    migrations also create this table, but rebuild_database.py runs the
-    Python pipeline before any user has launched the Tauri app, so we
-    can't rely on that having happened. Mirrors the DDL in
-    src-tauri/src/database/migrations.rs."""
+    """Creates the index + alignment tables if missing. Mirrors the DDL
+    in src-tauri/src/database/migrations.rs so the Python pipeline
+    works against a fresh DB before the Tauri app has ever launched."""
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS english_strongs_index (
@@ -197,25 +237,46 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_english_strongs_strongs ON english_strongs_index(strongs_id)"
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS english_word_alignment (
+            verse_id INTEGER PRIMARY KEY REFERENCES verses(id),
+            tokens TEXT NOT NULL
+        )
+        """
+    )
 
 
-def aggregate_index(db_path: Path, payload: bytes, conn: sqlite3.Connection) -> tuple[int, int]:
-    """Returns (rows_inserted, words_seen)."""
+def ingest(conn: sqlite3.Connection, payload: bytes) -> tuple[int, int, int]:
+    """Returns (alignment_rows, index_rows, total_tagged_words)."""
     ensure_schema(conn)
+
     book_id_by_abbrev = {a: bid for bid, a in conn.execute("SELECT id, abbreviation FROM books")}
 
-    # (word, strongs) -> Counter of frequencies + first-seen reference
+    # Find KJV translation id. Fall back to whichever translation has the
+    # 'KJV' abbreviation — the rebuild script seeds it as id=1 but we
+    # don't want to depend on that.
+    kjv_row = conn.execute(
+        "SELECT id FROM translations WHERE LOWER(abbreviation) = 'kjv' LIMIT 1"
+    ).fetchone()
+    if kjv_row is None:
+        raise SystemExit("KJV translation not found in `translations` table; run scripts/ingest.py first.")
+    kjv_translation_id = kjv_row[0]
+
+    # Aggregate index state
     freq: Counter = Counter()
     first_seen: dict[tuple[str, str], tuple[int, int, int]] = {}
-    words_seen = 0
+    total_tagged = 0
+
+    # Alignment state
+    alignment_rows: list[tuple[int, str]] = []
+    missing_verses = 0
 
     with zipfile.ZipFile(io.BytesIO(payload)) as zf:
         for member in zf.infolist():
             name = member.filename
             if not name.lower().endswith(".usfm"):
                 continue
-            # Filename format: 02-GENeng-kjv2006.usfm. The 3-letter book
-            # code is buried after the leading sort-prefix and dash.
             base = Path(name).stem  # 02-GENeng-kjv2006
             m = re.search(r"-([A-Z0-9]{3})eng-kjv2006", base)
             if not m:
@@ -223,47 +284,73 @@ def aggregate_index(db_path: Path, payload: bytes, conn: sqlite3.Connection) -> 
             usfm_code = m.group(1)
             db_abbrev = USFM_TO_DB.get(usfm_code)
             if not db_abbrev:
-                # eBible's eng-kjv2006 includes a couple of front-matter
-                # files (FRT, GLO) without scripture content; skip
-                # silently.
-                continue
+                continue  # FRT/GLO/etc. front-matter
             db_book_id = book_id_by_abbrev.get(db_abbrev)
             if not db_book_id:
-                print(f"  WARNING: USFM {usfm_code} maps to {db_abbrev} but books table has no such row.")
+                print(f"  WARNING: USFM {usfm_code} -> {db_abbrev} not in books table.")
                 continue
 
             with zf.open(member) as fp:
                 text = fp.read().decode("utf-8-sig", errors="replace")
-            language = language_for_book(db_book_id)
 
-            for book_id, chapter, verse, word, strongs_id in parse_usfm_member(text, db_book_id, language):
-                key = (word, strongs_id)
-                freq[key] += 1
-                first_seen.setdefault(key, (book_id, chapter, verse))
-                words_seen += 1
+            for chapter, verse_num, tokens in parse_usfm_book(text):
+                # Resolve verse_id for the alignment row.
+                row = conn.execute(
+                    "SELECT id FROM verses WHERE book_id = ? AND chapter = ? AND verse_num = ? AND translation_id = ? LIMIT 1",
+                    (db_book_id, chapter, verse_num, kjv_translation_id),
+                ).fetchone()
+                if row is None:
+                    missing_verses += 1
+                    continue
+                verse_id = row[0]
+                alignment_rows.append((verse_id, json.dumps(tokens, ensure_ascii=False, separators=(",", ":"))))
 
-    print(f"  Tagged words seen: {words_seen:,}")
+                # Aggregate index from the tagged tokens.
+                for tok in tokens:
+                    s = tok.get("s")
+                    if not s:
+                        continue
+                    word_lower = tok["w"].lower().strip("'’.,;:!?-—()[]\"")
+                    if not word_lower:
+                        continue
+                    for sid in s:
+                        key = (word_lower, sid)
+                        freq[key] += 1
+                        first_seen.setdefault(key, (db_book_id, chapter, verse_num))
+                        total_tagged += 1
+
+    if missing_verses:
+        print(f"  WARNING: {missing_verses} verse(s) had no matching row in `verses`; alignment skipped for those.")
+    print(f"  Tagged words seen: {total_tagged:,}")
     print(f"  Unique (word, strongs) pairs: {len(freq):,}")
+    print(f"  Verse alignment rows: {len(alignment_rows):,}")
 
+    # Replace both tables atomically.
     conn.execute("DELETE FROM english_strongs_index")
-    rows = []
-    for (word, strongs_id), count in freq.items():
-        book_id, chapter, verse = first_seen[(word, strongs_id)]
-        language = "hebrew" if strongs_id.startswith("H") else "greek"
-        rows.append((word, strongs_id, language, count, book_id, chapter, verse))
+    conn.execute("DELETE FROM english_word_alignment")
+
+    index_rows = []
+    for (word, sid), count in freq.items():
+        book_id, chapter, verse = first_seen[(word, sid)]
+        language = "hebrew" if sid.startswith("H") else "greek"
+        index_rows.append((word, sid, language, count, book_id, chapter, verse))
 
     conn.executemany(
         "INSERT INTO english_strongs_index "
         "(english_word, strongs_id, language, frequency, sample_book_id, sample_chapter, sample_verse) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        rows,
+        index_rows,
+    )
+    conn.executemany(
+        "INSERT INTO english_word_alignment (verse_id, tokens) VALUES (?, ?)",
+        alignment_rows,
     )
     conn.commit()
-    return len(rows), words_seen
+    return len(alignment_rows), len(index_rows), total_tagged
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build english_strongs_index from eBible KJV2006 USFM.")
+    parser = argparse.ArgumentParser(description="Build KJV<->Strong's data from eBible KJV2006 USFM.")
     parser.add_argument("--db-path", help="Path to aletheia.db (default: app data dir).")
     parser.add_argument("--cache-dir", default="data", help="Where to cache the downloaded zip.")
     add_allow_root_flag(parser)
@@ -283,8 +370,11 @@ def main() -> None:
     conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA foreign_keys = ON")
     try:
-        rows, total = aggregate_index(db_path, payload, conn)
-        print(f"Done: {rows:,} rows in english_strongs_index ({total:,} tagged words processed).")
+        alignment_rows, index_rows, total = ingest(conn, payload)
+        print(
+            f"Done: {index_rows:,} index rows + {alignment_rows:,} alignment rows "
+            f"({total:,} tagged words processed)."
+        )
     finally:
         conn.close()
 

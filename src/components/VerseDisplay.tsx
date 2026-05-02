@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '../store/useAppStore';
 import { createBookmark, deleteBookmark, getKetivQere, getStrongsGreek, getStrongsHebrew } from '../api';
-import type { VerseGroup, WordMapping, KetivQere, VerseWithWords, StrongsGreek, StrongsHebrew } from '../lib/tauri';
+import type { VerseGroup, WordMapping, KetivQere, VerseWithWords, StrongsGreek, StrongsHebrew, EnglishToken } from '../lib/tauri';
 import { parseGreekMorphology, parseHebrewMorphology } from '../lib/morphology';
 
 // ============================================================================
@@ -273,7 +273,7 @@ interface WordChipProps {
 
 function WordChip({ word, isHebrew, ketivQeres, onClick }: WordChipProps) {
   const [hovered, setHovered] = useState(false);
-  const { darkMode } = useAppStore();
+  const { darkMode, setHoveredStrongsId } = useAppStore();
 
   return (
     <span
@@ -282,8 +282,16 @@ function WordChip({ word, isHebrew, ketivQeres, onClick }: WordChipProps) {
         const rect = e.currentTarget.getBoundingClientRect();
         onClick(word, { top: rect.bottom + 4, left: rect.left });
       }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={() => {
+        setHovered(true);
+        // Tell the chapter container which Strong's ID is hot so the
+        // matching English token spans light up. Cleared on leave.
+        if (word.strongs_id) setHoveredStrongsId(word.strongs_id);
+      }}
+      onMouseLeave={() => {
+        setHovered(false);
+        setHoveredStrongsId(null);
+      }}
       style={{
         display: 'inline-block',
         fontFamily: isHebrew ? "'Noto Serif Hebrew', serif" : "'Noto Serif', serif",
@@ -369,9 +377,14 @@ function OriginalRow({ words, isHebrew, ketivQeres }: OriginalRowProps) {
 interface VerseDisplayProps {
   group: VerseGroup;
   originalVerses?: VerseWithWords[];
+  /** Per-verse English token alignment keyed by `verse.id`. When a
+   *  KJV verse has an entry, we render its tokens as individual spans
+   *  so the hover-to-highlight feature can target words. Verses
+   *  without alignment fall back to the plain-text rendering. */
+  englishAlignment?: Record<number, EnglishToken[]>;
 }
 
-export function VerseDisplay({ group, originalVerses }: VerseDisplayProps) {
+export function VerseDisplay({ group, originalVerses, englishAlignment }: VerseDisplayProps) {
   const {
     darkMode,
     fontSize,
@@ -512,7 +525,19 @@ export function VerseDisplay({ group, originalVerses }: VerseDisplayProps) {
                 flex: 1,
               }}
             >
-              {verse.text}
+              {(() => {
+                // For KJV verses with token alignment, render
+                // word-by-word so hover-to-highlight can target the
+                // exact spans translating a Hebrew/Greek word. For
+                // every other translation (and for KJV verses without
+                // alignment), keep the plain-text rendering.
+                const tokens = englishAlignment?.[verse.id];
+                const isKjv = (verse.translation_abbreviation ?? '').toLowerCase() === 'kjv';
+                if (isKjv && tokens && tokens.length > 0) {
+                  return <TokenizedVerseText tokens={tokens} />;
+                }
+                return verse.text;
+              })()}
             </p>
             {/* Bookmark button — appears on hover */}
             <button
@@ -552,5 +577,45 @@ export function VerseDisplay({ group, originalVerses }: VerseDisplayProps) {
         <OriginalRow words={sblgntWords} isHebrew={false} ketivQeres={[]} />
       )}
     </div>
+  );
+}
+
+// ============================================================================
+// Tokenized verse renderer (KJV)
+// ============================================================================
+
+const PUNCTUATION = /^[.,:;!?\-—–()[\]"“”'’]+$/;
+
+/** Renders a KJV verse from its token alignment data. Tagged words get a
+ *  data-strongs attribute so the chapter-level hover effect can target
+ *  them; untagged words and punctuation are plain text. Tokens are
+ *  joined with spaces, except a leading space is suppressed before
+ *  punctuation tokens so commas and periods hug the previous word. */
+function TokenizedVerseText({ tokens }: { tokens: EnglishToken[] }) {
+  return (
+    <>
+      {tokens.map((tok, i) => {
+        const prev = tokens[i - 1];
+        const isPunct = PUNCTUATION.test(tok.w);
+        const needsLeadingSpace = i > 0 && !isPunct && prev !== undefined && !PUNCTUATION.test(prev.w);
+        // Untagged tokens render as plain text — no extra DOM weight,
+        // and they're skipped by the highlight selector. Tagged tokens
+        // get a span with data-strongs (space-separated list) so the
+        // attribute-includes selector matches when hovered.
+        if (tok.s && tok.s.length > 0) {
+          return (
+            <span key={i}>
+              {needsLeadingSpace ? ' ' : ''}
+              <span className="eng-token" data-strongs={tok.s.join(' ')}>{tok.w}</span>
+            </span>
+          );
+        }
+        return (
+          <span key={i}>
+            {needsLeadingSpace ? ' ' : ''}{tok.w}
+          </span>
+        );
+      })}
+    </>
   );
 }

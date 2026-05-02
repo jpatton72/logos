@@ -17,7 +17,7 @@ pub use notes::{create_note, delete_note, get_notes, search_notes, update_note};
 pub use preferences::{get_preference, set_preference};
 pub use progress::{get_reading_progress, update_reading_progress};
 pub use search::{search_terms, search_verses};
-pub use verses::{compare_verses, get_book_index, get_chapter, get_chapter_counts, get_chapter_originals, get_ketiv_qere, get_verse};
+pub use verses::{compare_verses, get_book_index, get_chapter, get_chapter_counts, get_chapter_english_alignment, get_chapter_originals, get_ketiv_qere, get_verse};
 
 pub use ai::{
     ai_chat, delete_ai_conversation, delete_api_key, get_ai_conversation, has_api_key,

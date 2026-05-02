@@ -224,6 +224,25 @@ html.dark .search-highlight {
   background-color: #78350f80;
 }
 
+/* English token spans rendered from per-verse alignment data. Plain
+ * by default; the chapter-level hover effect adds .eng-token--highlight
+ * to the spans whose data-strongs matches the currently-hovered
+ * Hebrew/Greek word. */
+.eng-token {
+  border-radius: 3px;
+  transition: background-color 0.12s ease-out, color 0.12s ease-out;
+}
+.eng-token--highlight {
+  background-color: rgba(217, 119, 6, 0.30);
+  color: #92400e;
+  font-weight: 600;
+  padding: 0 1px;
+}
+html.dark .eng-token--highlight {
+  background-color: rgba(252, 211, 77, 0.25);
+  color: #fcd34d;
+}
+
 /* Gentle flash applied to a verse row after the user lands on it from
  * a search result or other deep-link source. Fades back to the row's
  * normal background over ~2 seconds. The prefers-reduced-motion block

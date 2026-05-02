@@ -81,6 +81,11 @@ interface AppState {
   // ChapterView once the requested chapter has rendered. The verse
   // gets scrolled into view and briefly highlighted, then cleared.
   pendingScrollVerse: { book: string; chapter: number; verseNum: number } | null;
+  // Strong's ID currently being hovered (in StrongsSidebar, an
+  // original-language word chip in a verse, or the StrongsPopupModal).
+  // The English token renderer uses this to highlight matching tokens
+  // in the parallel KJV verse. `null` = nothing hovered.
+  hoveredStrongsId: string | null;
   // Actions
   setBook: (book: string) => void;
   setChapter: (chapter: number) => void;
@@ -96,6 +101,7 @@ interface AppState {
   setCurrentConversationId: (id: number | null) => void;
   clearAiConversation: () => void;
   setPendingScrollVerse: (target: { book: string; chapter: number; verseNum: number } | null) => void;
+  setHoveredStrongsId: (id: string | null) => void;
   addTranslation: (trans: string) => void;
   removeTranslation: (trans: string) => void;
   setActiveTranslations: (translations: string[]) => void;
@@ -134,6 +140,7 @@ export const useAppStore = create<AppState>()(
       aiQuestion: '',
       currentConversationId: null,
       pendingScrollVerse: null,
+      hoveredStrongsId: null,
 
       // Navigation does NOT clear the verse selection — the whole point of
       // the persistent selection is to let the user gather verses from
@@ -268,6 +275,7 @@ export const useAppStore = create<AppState>()(
       // accessible via the history view.
       clearAiConversation: () => set({ aiMessages: [], aiLoading: false, aiQuestion: '', currentConversationId: null }),
       setPendingScrollVerse: (target) => set({ pendingScrollVerse: target }),
+      setHoveredStrongsId: (id) => set({ hoveredStrongsId: id }),
     }),
     {
       // Renamed from 'logos-app-state' for the Aletheia rebrand. The

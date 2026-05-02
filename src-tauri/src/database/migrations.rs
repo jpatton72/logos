@@ -293,6 +293,28 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
         [],
     )?;
 
+    // Per-verse English token alignment for KJV. One row per KJV verse,
+    // `tokens` is a JSON array of {w: string, s?: string[]} objects in
+    // order. Tagged words carry their Strong's IDs; untagged words and
+    // punctuation are stored without `s` so the renderer can reconstruct
+    // the whole verse from this data.
+    //
+    // The reader uses this to highlight the English word(s) translating
+    // a hovered Hebrew/Greek word — the token spans get a data-strongs
+    // attribute, and a JS effect toggles a `.eng-token--highlight`
+    // class on the spans whose Strong's array contains the hovered ID.
+    //
+    // Source: eBible.org's KJV2006 USFM (Public Domain), parsed by
+    // scripts/ingest_kjv_strongs.py — same pipeline that builds
+    // english_strongs_index.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS english_word_alignment (
+            verse_id INTEGER PRIMARY KEY REFERENCES verses(id),
+            tokens TEXT NOT NULL
+        )",
+        [],
+    )?;
+
     // Saved AI conversations. Each row is one chat thread the user has
     // built up in the AI panel. Messages are stored as a JSON array;
     // the verse_context / word_context columns capture what was
@@ -328,4 +350,5 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
 ///   2 = books.testament CHECK relaxed to allow 'apoc'
 ///   3 = added english_strongs_index for KJV->Strong's lookup
 ///   4 = added ai_conversations for AI chat history
-pub const CURRENT_SCHEMA: i32 = 4;
+///   5 = added english_word_alignment for per-token KJV<->Strong's hover
+pub const CURRENT_SCHEMA: i32 = 5;

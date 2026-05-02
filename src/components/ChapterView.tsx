@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { getChapter, getChapterOriginals } from '../lib/tauri';
-import type { VerseGroup, VerseWithWords } from '../lib/tauri';
+import { getChapter, getChapterOriginals, getChapterEnglishAlignment } from '../lib/tauri';
+import type { VerseGroup, VerseWithWords, EnglishToken } from '../lib/tauri';
 import { TranslationSelector } from './TranslationSelector';
 import { VerseDisplay } from './VerseDisplay';
 
@@ -22,10 +22,12 @@ export function ChapterView({
   onNextChapter,
   onOpenAi,
 }: ChapterViewProps) {
-  const { activeTranslations, darkMode, books, ensureBooks, pendingScrollVerse, setPendingScrollVerse } = useAppStore();
+  const { activeTranslations, darkMode, books, ensureBooks, pendingScrollVerse, setPendingScrollVerse, hoveredStrongsId } = useAppStore();
   const [verses, setVerses] = useState<VerseGroup[]>([]);
   const [originalVerses, setOriginalVerses] = useState<VerseWithWords[]>([]);
+  const [englishAlignment, setEnglishAlignment] = useState<Record<number, EnglishToken[]>>({});
   const [loading, setLoading] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (books.length === 0) ensureBooks().catch(() => {});
@@ -34,15 +36,43 @@ export function ChapterView({
   useEffect(() => {
     setLoading(true);
     (async () => {
-      const [chapterData, originals] = await Promise.all([
+      const [chapterData, originals, alignment] = await Promise.all([
         getChapter(book, chapter, activeTranslations),
         getChapterOriginals(book, chapter),
+        // Alignment lookup is cheap (one indexed query) and most chapters
+        // have it; bundling it with the other two avoids a second
+        // round-trip after render.
+        getChapterEnglishAlignment(book, chapter).catch(() => ({})),
       ]);
       setVerses(chapterData);
       setOriginalVerses(originals as VerseWithWords[]);
+      setEnglishAlignment(alignment);
       setLoading(false);
     })();
   }, [book, chapter, activeTranslations.join(',')]);
+
+  // Hover-to-highlight: when an original-language word in this chapter
+  // is hovered (in the parallel-translation row, or the StrongsSidebar,
+  // etc.), the store's `hoveredStrongsId` updates. Walk every English
+  // token span in this chapter's container and toggle the highlight
+  // class on those whose `data-strongs` attribute lists the hovered ID.
+  // Doing this with a single querySelectorAll is far cheaper than
+  // re-rendering every verse on hover.
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+    // Clear any leftover highlights first.
+    root.querySelectorAll('.eng-token--highlight').forEach((el) => {
+      el.classList.remove('eng-token--highlight');
+    });
+    if (!hoveredStrongsId) return;
+    // Attribute-includes selector matches any token whose strongs list
+    // contains the ID as a whole space-separated entry.
+    const selector = `[data-strongs~="${cssEscapeAttr(hoveredStrongsId)}"]`;
+    root.querySelectorAll(selector).forEach((el) => {
+      el.classList.add('eng-token--highlight');
+    });
+  }, [hoveredStrongsId, verses, englishAlignment]);
 
   // Consume any queued scroll-to-verse target. Fires once the verses
   // for the requested chapter are actually rendered (so getElementById
@@ -187,12 +217,13 @@ export function ChapterView({
           Loading...
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+        <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
           {verses.map((group) => (
             <VerseDisplay
               key={group.verse_num}
               group={group}
               originalVerses={originalVerses.filter(v => v.verse_num === group.verse_num)}
+              englishAlignment={englishAlignment}
             />
           ))}
         </div>
@@ -209,4 +240,11 @@ export function ChapterView({
       </div>
     </div>
   );
+}
+
+/** Escape a string for use inside a CSS attribute selector value. We
+ *  trust our own Strong's IDs (always `[GH]\d+` format) but use the
+ *  same wrapper as a defense-in-depth in case the data ever drifts. */
+function cssEscapeAttr(s: string): string {
+  return s.replace(/["\\]/g, '\\$&');
 }

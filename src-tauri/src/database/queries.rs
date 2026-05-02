@@ -977,6 +977,37 @@ pub fn lookup_english_term(
 }
 
 // ============================================================================
+// English token alignment (per-verse, KJV)
+// ============================================================================
+
+/// Returns a `(verse_id, tokens_json)` pair for every KJV verse in the
+/// requested chapter that has alignment data. The frontend parses the
+/// JSON token array and renders KJV verses from it (replacing the
+/// plain-text rendering) so the hover-to-highlight feature can target
+/// individual word spans.
+pub fn get_chapter_english_alignment(
+    db: &Database,
+    book_abbreviation: &str,
+    chapter: i32,
+) -> SqliteResult<Vec<(i64, String)>> {
+    let conn = db.conn.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT a.verse_id, a.tokens
+         FROM english_word_alignment a
+         JOIN verses v ON v.id = a.verse_id
+         JOIN books b ON b.id = v.book_id
+         WHERE b.abbreviation = ?1 COLLATE NOCASE
+           AND v.chapter = ?2",
+    )?;
+    let rows = stmt
+        .query_map(params![book_abbreviation, chapter], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+// ============================================================================
 // AI Conversations
 // ============================================================================
 

@@ -172,11 +172,14 @@ export function StrongsSidebar({ book, chapter, verseNum, onClose }: StrongsSide
               return (
                 <div
                   key={`${w.id}-${i}`}
+                  onMouseEnter={() => useAppStore.getState().setHoveredStrongsId(w.strongs_id)}
+                  onMouseLeave={() => useAppStore.getState().setHoveredStrongsId(null)}
                   style={{
                     padding: '0.625rem 0.75rem',
                     borderRadius: '8px',
                     backgroundColor: surface,
                     border: `1px solid ${border}`,
+                    cursor: 'default',
                   }}
                 >
                   <div

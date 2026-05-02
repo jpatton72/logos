@@ -407,6 +407,34 @@ export async function getChapterOriginals(book: string, chapter: number): Promis
   return invoke<VerseWithWords[]>("get_chapter_originals", { book, chapter });
 }
 
+/** One token of an aligned English verse. Tagged words carry their
+ *  Strong's IDs in `s`; untagged words and punctuation have no `s`. */
+export interface EnglishToken {
+  w: string;
+  s?: string[];
+}
+
+/** Per-verse English token alignment for the KJV chapter. The map key
+ *  is the verse's database `id`; values are the parsed token arrays
+ *  ready for rendering. Verses without alignment data (apocrypha, etc.)
+ *  are simply absent from the map and fall back to plain-text rendering
+ *  on the frontend. */
+export async function getChapterEnglishAlignment(
+  book: string,
+  chapter: number,
+): Promise<Record<number, EnglishToken[]>> {
+  const rows = await invoke<Array<[number, string]>>("get_chapter_english_alignment", { book, chapter });
+  const out: Record<number, EnglishToken[]> = {};
+  for (const [verseId, tokensJson] of rows) {
+    try {
+      out[verseId] = JSON.parse(tokensJson) as EnglishToken[];
+    } catch (e) {
+      console.error(`Failed to parse alignment tokens for verse ${verseId}:`, e);
+    }
+  }
+  return out;
+}
+
 export async function getKetivQere(
   book: string,
   chapter: number,
