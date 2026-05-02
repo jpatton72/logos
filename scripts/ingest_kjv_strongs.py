@@ -170,8 +170,38 @@ def language_for_book(db_book_id: int) -> str:
     return "hebrew" if db_book_id <= 39 else "greek"
 
 
+def ensure_schema(conn: sqlite3.Connection) -> None:
+    """Creates english_strongs_index if missing. The Rust app's startup
+    migrations also create this table, but rebuild_database.py runs the
+    Python pipeline before any user has launched the Tauri app, so we
+    can't rely on that having happened. Mirrors the DDL in
+    src-tauri/src/database/migrations.rs."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS english_strongs_index (
+            id INTEGER PRIMARY KEY,
+            english_word TEXT NOT NULL,
+            strongs_id TEXT NOT NULL,
+            language TEXT NOT NULL CHECK (language IN ('hebrew', 'greek')),
+            frequency INTEGER NOT NULL,
+            sample_book_id INTEGER REFERENCES books(id),
+            sample_chapter INTEGER,
+            sample_verse INTEGER,
+            UNIQUE(english_word, strongs_id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_english_strongs_word ON english_strongs_index(english_word)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_english_strongs_strongs ON english_strongs_index(strongs_id)"
+    )
+
+
 def aggregate_index(db_path: Path, payload: bytes, conn: sqlite3.Connection) -> tuple[int, int]:
     """Returns (rows_inserted, words_seen)."""
+    ensure_schema(conn)
     book_id_by_abbrev = {a: bid for bid, a in conn.execute("SELECT id, abbreviation FROM books")}
 
     # (word, strongs) -> Counter of frequencies + first-seen reference
