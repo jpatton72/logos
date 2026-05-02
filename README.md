@@ -44,7 +44,7 @@ public-domain English translations, with optional AI-powered assistance.
 ### Windows (recommended — single installer)
 
 1. Download `Aletheia_0.1.0_x64-setup.exe` from the
-   [Releases page](https://github.com/jpatton72/logos/releases).
+   [Releases page](https://github.com/jpatton72/Aletheia/releases).
 2. Double-click the installer. Windows SmartScreen may warn about an
    unrecognized publisher — click **More info → Run anyway**.
 3. Follow the prompts; the default install location is fine.
@@ -143,8 +143,8 @@ nvm install 20 && nvm use 20
 #### 3. Clone and build
 
 ```bash
-git clone https://github.com/jpatton72/logos.git
-cd logos
+git clone https://github.com/jpatton72/Aletheia.git
+cd Aletheia
 npm install
 
 # Populate the database (downloads ≈40 MB of source data the first time;
@@ -190,8 +190,8 @@ xcode-select --install
 brew install rust node@20 python@3.12
 
 # Clone + build
-git clone https://github.com/jpatton72/logos.git
-cd logos
+git clone https://github.com/jpatton72/Aletheia.git
+cd Aletheia
 npm install
 python3 scripts/rebuild_database.py
 npm run tauri build
