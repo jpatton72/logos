@@ -43,8 +43,11 @@ public-domain English translations, with optional AI-powered assistance.
 
 ### Windows (recommended — single installer)
 
-1. Download `Aletheia_0.1.0_x64-setup.exe` from the
-   [Releases page](https://github.com/jpatton72/Aletheia/releases).
+1. Download the latest installer from
+   <https://github.com/jpatton72/Aletheia/releases/latest/download/Aletheia_x64-setup.exe>
+   (always points at the most recent stable release; per-version
+   installers + SHA-256 checksums live on the
+   [Releases page](https://github.com/jpatton72/Aletheia/releases)).
 2. Double-click the installer. Windows SmartScreen may warn about an
    unrecognized publisher — click **More info → Run anyway**.
 3. Follow the prompts; the default install location is fine.

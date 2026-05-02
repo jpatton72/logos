@@ -23,10 +23,16 @@ Run, in order:
 #    it to `src-tauri/aletheia.db` (the path Tauri bundles).
 python scripts/rebuild_database.py
 
-# 2. Build the installer. Output goes to:
-#      src-tauri/target/release/bundle/nsis/Aletheia_0.1.0_x64-setup.exe
-#      src-tauri/target/release/bundle/msi/Aletheia_0.1.0_x64_en-US.msi
+# 2. Build the installers. Output (X.Y.Z = current version):
+#      src-tauri/target/release/bundle/nsis/Aletheia_X.Y.Z_x64-setup.exe
+#      src-tauri/target/release/bundle/msi/Aletheia_X.Y.Z_x64_en-US.msi
 npm run tauri build
+
+# 3. Cut the GitHub release. Wraps `gh release create`, copies the
+#    versioned NSIS installer to `Aletheia_x64-setup.exe`, and uploads
+#    all three artifacts (versioned NSIS + MSI + version-stripped
+#    alias). The alias is what powers the always-latest download link.
+scripts/cut_release.sh vX.Y.Z "Aletheia X.Y.Z" docs/release-notes/X.Y.Z.md
 ```
 
 The NSIS `*-setup.exe` is the canonical single-executable deploy artifact:
@@ -34,6 +40,13 @@ running it installs the Aletheia app, the bundled icon, and the fully populated
 `aletheia.db` (KJV, NKJV, ESV, SBLGNT, WLC, KJV Apocrypha, plus all 444k Hebrew
 + Greek word mappings with Strong's IDs). Users do not need Python or any of
 the ingest scripts to use the app.
+
+The version-stripped `Aletheia_x64-setup.exe` is a duplicate of the
+versioned NSIS installer. Its only purpose is to be reachable via
+`https://github.com/jpatton72/Aletheia/releases/latest/download/Aletheia_x64-setup.exe`,
+which GitHub redirects to the matching asset on whichever release is
+flagged Latest. External "download Aletheia" links should use that URL
+instead of a versioned one so they don't go stale.
 
 ## Upgrading an existing install
 
