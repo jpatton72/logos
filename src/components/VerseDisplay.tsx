@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '../store/useAppStore';
-import { createBookmark, deleteBookmark, getKetivQere } from '../api';
-import type { VerseGroup, WordMapping, KetivQere, VerseWithWords } from '../lib/tauri';
+import { createBookmark, deleteBookmark, getKetivQere, getStrongsGreek, getStrongsHebrew } from '../api';
+import type { VerseGroup, WordMapping, KetivQere, VerseWithWords, StrongsGreek, StrongsHebrew } from '../lib/tauri';
 import { parseGreekMorphology, parseHebrewMorphology } from '../lib/morphology';
 
 // ============================================================================
@@ -21,6 +21,26 @@ function WordTooltip({ word, ketivQeres, position, onClose }: WordTooltipProps) 
   const isHebrew = word.language === 'hebrew';
   const morphParts = isHebrew ? parseHebrewMorphology(word.morphology ?? '') : parseGreekMorphology(word.morphology ?? '');
   const ref = useRef<HTMLDivElement | null>(null);
+
+  // Strong's lexicon entry. Fetched on every popup open — the entries
+  // are tiny (single-row JOIN) and round-tripping it gives users the
+  // same definition/transliteration/pronunciation they'd see in the
+  // Lexicon page without making them switch screens. Treat null + not
+  // loading as "lookup returned no row" (rare but possible for
+  // dictionary-less Strong's IDs).
+  const [strongsEntry, setStrongsEntry] = useState<StrongsGreek | StrongsHebrew | null>(null);
+  const [loadingStrongs, setLoadingStrongs] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingStrongs(true);
+    setStrongsEntry(null);
+    const fetcher = isHebrew ? getStrongsHebrew : getStrongsGreek;
+    fetcher(word.strongs_id)
+      .then((entry) => { if (!cancelled) setStrongsEntry(entry); })
+      .catch(() => { if (!cancelled) setStrongsEntry(null); })
+      .finally(() => { if (!cancelled) setLoadingStrongs(false); });
+    return () => { cancelled = true; };
+  }, [word.strongs_id, isHebrew]);
 
   // Close on outside-click and on Escape.
   useEffect(() => {
@@ -54,8 +74,10 @@ function WordTooltip({ word, ketivQeres, position, onClose }: WordTooltipProps) 
         border: `1px solid ${darkMode ? '#92400e' : '#d97706'}`,
         borderRadius: '10px',
         padding: '0.875rem',
-        width: '280px',
-        maxWidth: '90vw',
+        width: '340px',
+        maxWidth: '92vw',
+        maxHeight: '80vh',
+        overflowY: 'auto',
         boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
         cursor: 'default',
       }}
@@ -134,6 +156,38 @@ function WordTooltip({ word, ketivQeres, position, onClose }: WordTooltipProps) 
           {word.morphology}
         </div>
       )}
+
+      {/* Strong's lexicon entry */}
+      <div style={{ marginTop: '0.625rem', paddingTop: '0.625rem', borderTop: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>
+        <div style={{ fontSize: '0.68rem', fontWeight: 700, color: darkMode ? '#78716c' : '#a8a29e', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.375rem' }}>
+          Strong's Definition
+        </div>
+        {loadingStrongs ? (
+          <div style={{ fontSize: '0.78rem', color: darkMode ? '#78716c' : '#a8a29e', fontStyle: 'italic' }}>
+            Loading…
+          </div>
+        ) : strongsEntry ? (
+          <>
+            {strongsEntry.transliteration && (
+              <div style={{ fontSize: '0.78rem', fontStyle: 'italic', color: darkMode ? '#a8a29e' : '#78716c', marginBottom: '0.25rem' }}>
+                {strongsEntry.transliteration}
+                {strongsEntry.pronunciation && (
+                  <span style={{ marginLeft: '0.5rem', fontStyle: 'normal', opacity: 0.7 }}>
+                    · {strongsEntry.pronunciation}
+                  </span>
+                )}
+              </div>
+            )}
+            <p style={{ margin: 0, fontSize: '0.82rem', lineHeight: 1.5, color: darkMode ? '#f5f5f4' : '#292524' }}>
+              {strongsEntry.definition || 'No definition available.'}
+            </p>
+          </>
+        ) : (
+          <div style={{ fontSize: '0.78rem', color: darkMode ? '#78716c' : '#a8a29e', fontStyle: 'italic' }}>
+            No lexicon entry found for {word.strongs_id}.
+          </div>
+        )}
+      </div>
 
       {/* Ketiv/Qere display */}
       {ketivQeres.length > 0 && isHebrew && (

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Book } from '../lib/tauri';
 import { getBookIndex, getChapterCounts } from '../lib/tauri';
+import type { ChatMessage } from '../lib/ai';
 
 // A canonical reference to a single verse. `book` is the lower-cased
 // abbreviation (e.g. "gen", "matt") to match the way `currentBook` is stored.
@@ -60,6 +61,13 @@ interface AppState {
   // Cached chapter-count map (`abbreviation` -> max chapter), populated
   // once via ensureChapterCounts(). Same lifetime semantics as `books`.
   chapterCounts: Record<string, number>;
+  // AI conversation history — kept in the store rather than AiPanel
+  // local state so the conversation survives the panel closing,
+  // navigating to other routes, and the home button. Not persisted to
+  // disk: chat content can be sensitive and grows unboundedly. Cleared
+  // explicitly via clearAiConversation() or fresh on app restart.
+  aiMessages: ChatMessage[];
+  aiLoading: boolean;
   // Actions
   setBook: (book: string) => void;
   setChapter: (chapter: number) => void;
@@ -68,6 +76,9 @@ interface AppState {
   clearVerseSelection: () => void;
   ensureBooks: () => Promise<Book[]>;
   ensureChapterCounts: () => Promise<Record<string, number>>;
+  appendAiMessage: (msg: ChatMessage) => void;
+  setAiLoading: (loading: boolean) => void;
+  clearAiConversation: () => void;
   addTranslation: (trans: string) => void;
   removeTranslation: (trans: string) => void;
   setActiveTranslations: (translations: string[]) => void;
@@ -101,6 +112,8 @@ export const useAppStore = create<AppState>()(
       fontSize: 18,
       books: [],
       chapterCounts: {},
+      aiMessages: [],
+      aiLoading: false,
 
       // Navigation does NOT clear the verse selection — the whole point of
       // the persistent selection is to let the user gather verses from
@@ -225,6 +238,9 @@ export const useAppStore = create<AppState>()(
         })),
       removeNote: (id) => set((s) => ({ notes: s.notes.filter((n) => n.id !== id) })),
       setFontSize: (size) => set({ fontSize: size }),
+      appendAiMessage: (msg) => set((s) => ({ aiMessages: [...s.aiMessages, msg] })),
+      setAiLoading: (loading) => set({ aiLoading: loading }),
+      clearAiConversation: () => set({ aiMessages: [], aiLoading: false }),
     }),
     {
       // Renamed from 'logos-app-state' for the Aletheia rebrand. The

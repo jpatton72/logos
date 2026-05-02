@@ -65,20 +65,31 @@ function buildSystemPrompt(verses: VerseRef[], word?: WordContext): string {
 }
 
 export function AiPanel({ verses = [], wordContext, onClose, onDeselectAll }: AiPanelProps) {
-  const { darkMode, clearVerseSelection } = useAppStore();
+  // Conversation state lives in the Zustand store so closing the panel
+  // (or navigating to another route via the home button) doesn't wipe
+  // the conversation. The current input draft + scroll position stay
+  // local — those are genuinely transient. See store comment for the
+  // rationale on not persisting to disk.
+  const {
+    darkMode,
+    clearVerseSelection,
+    aiMessages: messages,
+    aiLoading: loading,
+    appendAiMessage,
+    setAiLoading,
+    clearAiConversation,
+  } = useAppStore();
   const deselectAll = onDeselectAll ?? clearVerseSelection;
   const [question, setQuestion] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!question.trim()) return;
 
     const userMsg: ChatMessage = { role: 'user', content: question.trim() };
-    setMessages((prev) => [...prev, userMsg]);
+    appendAiMessage(userMsg);
     setQuestion('');
-    setLoading(true);
+    setAiLoading(true);
 
     try {
       // Load provider, model, and API key from preferences.
@@ -88,15 +99,12 @@ export function AiPanel({ verses = [], wordContext, onClose, onDeselectAll }: Ai
       ]);
 
       if (!providerPref) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: 'assistant',
-            content:
-              'No AI provider selected. Open Settings, choose a provider (OpenAI, Anthropic, Google, Groq, or Ollama), enter your API key, and click Save.',
-          },
-        ]);
-        setLoading(false);
+        appendAiMessage({
+          role: 'assistant',
+          content:
+            'No AI provider selected. Open Settings, choose a provider (OpenAI, Anthropic, Google, Groq, or Ollama), enter your API key, and click Save.',
+        });
+        setAiLoading(false);
         return;
       }
 
@@ -106,14 +114,11 @@ export function AiPanel({ verses = [], wordContext, onClose, onDeselectAll }: Ai
       const keyPresent = await hasApiKey(providerPref);
       // Ollama is local and may not require a key, so we don't pre-flight it.
       if (providerPref !== 'ollama' && !keyPresent) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: 'assistant',
-            content: `No API key saved for ${providerPref}. Open Settings, paste your API key in the ${providerPref} field, and click Save.`,
-          },
-        ]);
-        setLoading(false);
+        appendAiMessage({
+          role: 'assistant',
+          content: `No API key saved for ${providerPref}. Open Settings, paste your API key in the ${providerPref} field, and click Save.`,
+        });
+        setAiLoading(false);
         return;
       }
 
@@ -129,23 +134,21 @@ export function AiPanel({ verses = [], wordContext, onClose, onDeselectAll }: Ai
 
       console.log('[AiPanel] Sending AI request:', { provider: providerPref, model, messageCount: allMessages.length });
 
-      // The backend reads the API key from user_preferences using the provider name.
+      // The backend reads the API key from the OS credential vault using the provider name.
       const response = await aiChat(allMessages, providerPref, model);
-      const assistantMsg: ChatMessage = { role: 'assistant', content: response };
-      setMessages((prev) => [...prev, assistantMsg]);
+      appendAiMessage({ role: 'assistant', content: response });
       // Per spec: the persistent verse selection clears once a question
       // has been asked, so the next question starts with a fresh slate.
       deselectAll();
     } catch (e: unknown) {
       console.error('[AiPanel] Error:', e);
       const errorMessage = e instanceof Error ? e.message : String(e);
-      const assistantMsg: ChatMessage = {
+      appendAiMessage({
         role: 'assistant',
         content: `Error: ${errorMessage || 'Failed to get a response. Please check your API key in Settings.'}`,
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
+      });
     } finally {
-      setLoading(false);
+      setAiLoading(false);
     }
   };
 
@@ -210,21 +213,43 @@ export function AiPanel({ verses = [], wordContext, onClose, onDeselectAll }: Ai
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <span style={{ fontSize: '1rem', fontWeight: 700 }}>Ask AI</span>
         </div>
-        <button
-          onClick={onClose}
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            color: darkMode ? '#a8a29e' : '#78716c',
-            padding: '0.25rem',
-          }}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+          {messages.length > 0 && (
+            <button
+              onClick={clearAiConversation}
+              title="Clear conversation"
+              aria-label="Clear conversation"
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: darkMode ? '#a8a29e' : '#78716c',
+                fontSize: '0.7rem',
+                fontWeight: 600,
+                padding: '0.25rem 0.5rem',
+                borderRadius: '6px',
+              }}
+            >
+              Clear
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            aria-label="Close AI panel"
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: darkMode ? '#a8a29e' : '#78716c',
+              padding: '0.25rem',
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Verse context */}
