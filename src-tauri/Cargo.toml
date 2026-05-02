@@ -1,6 +1,6 @@
 [package]
 name = "aletheia"
-version = "0.1.2"
+version = "0.1.3"
 description = "Aletheia - Bible Study Application"
 authors = ["Aletheia Team"]
 edition = "2021"
