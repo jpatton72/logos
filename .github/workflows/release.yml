@@ -159,7 +159,7 @@ jobs:
           TAG="${{ github.ref_name }}"
           BUNDLE_ROOT="src-tauri/target/release/bundle"
           echo "::group::Bundle directory contents"
-          find "$BUNDLE_ROOT" -type f 2>/dev/null | sort
+          { find "$BUNDLE_ROOT" -type f 2>/dev/null || true; } | sort
           echo "::endgroup::"
 
           NSIS=$(find "$BUNDLE_ROOT/nsis" -maxdepth 1 -type f -iname 'aletheia_*x64-setup.exe' -print -quit 2>/dev/null || true)
@@ -189,7 +189,7 @@ jobs:
           TAG="${{ github.ref_name }}"
           BUNDLE_ROOT="src-tauri/target/release/bundle"
           echo "::group::Bundle directory contents"
-          find "$BUNDLE_ROOT" -type f 2>/dev/null | sort
+          { find "$BUNDLE_ROOT" -type f 2>/dev/null || true; } | sort
           echo "::endgroup::"
 
           # `find -print -quit` returns the first match without invoking
