@@ -1,52 +1,69 @@
 # Build & Deploy
 
-Single-command production build. The output is one Windows installer that
-deploys the entire app — no scripts, no manual ingestion, no Python on the
-target machine.
+## Cutting a release (CI)
 
-## Producing a release installer
-
-Prerequisites (developer machine):
-
-- Rust + Cargo (stable)
-- Node.js 18+
-- Python 3.10+
-- The standard Tauri Windows toolchain (WiX, NSIS) — Tauri downloads these
-  on first build into `target/release/build/`.
-
-Run, in order:
+Releases are produced by [`.github/workflows/release.yml`](.github/workflows/release.yml)
+on every `git push --tags` for any tag matching `v*`. The workflow
+runs on a Windows + Linux matrix, builds installers in parallel, and
+uploads everything to a GitHub release named after the tag.
 
 ```sh
-# 1. Pull the latest source data and rebuild the bundled database.
-#    Auto-downloads every translation/MorphGNT/OSHB asset that's missing.
-#    Writes the result to `%APPDATA%/aletheia/Aletheia/data/aletheia.db` AND copies
-#    it to `src-tauri/aletheia.db` (the path Tauri bundles).
+# 1. Bump version in package.json + src-tauri/tauri.conf.json +
+#    src-tauri/Cargo.toml (all three must match).
+# 2. (Optional) write release notes at docs/release-notes/X.Y.Z.md —
+#    if present, the workflow uses that file as the release body.
+# 3. Push the version-bump commit + the tag.
+git push origin main
+git tag -a vX.Y.Z -m "Aletheia X.Y.Z"
+git push origin vX.Y.Z
+```
+
+The workflow takes ~12-15 minutes on a cold cache, ~5-7 minutes once
+`data/` and the cargo registry are warm. Output (X.Y.Z = the tag's
+version):
+
+| File | Where |
+|---|---|
+| `Aletheia_X.Y.Z_x64-setup.exe` (NSIS) | Windows |
+| `Aletheia_X.Y.Z_x64_en-US.msi` | Windows (group-policy / silent) |
+| `Aletheia_X.Y.Z_amd64.deb` | Linux (system-wide) |
+| `Aletheia_X.Y.Z_amd64.AppImage` | Linux (single-file portable) |
+| `Aletheia_x64-setup.exe` | Windows always-latest alias |
+| `Aletheia_x64.AppImage` | Linux always-latest alias |
+| `Aletheia_amd64.deb` | Linux always-latest alias |
+
+Each NSIS / .deb / .AppImage / .msi is the canonical single-artifact
+deploy: running it installs Aletheia and the fully populated
+`aletheia.db` (KJV, NKJV, ESV, SBLGNT, WLC, KJV Apocrypha, plus all
+444k Hebrew + Greek word mappings, Strong's IDs, KJV-token alignment).
+Users do not need Python, Rust, or any ingest scripts to use the app.
+
+The version-stripped aliases sit next to the canonical artifacts on
+every release. They power the always-latest download URLs:
+
+```
+https://github.com/jpatton72/Aletheia/releases/latest/download/Aletheia_x64-setup.exe
+https://github.com/jpatton72/Aletheia/releases/latest/download/Aletheia_x64.AppImage
+https://github.com/jpatton72/Aletheia/releases/latest/download/Aletheia_amd64.deb
+```
+
+External "download Aletheia" links should point at those instead of
+versioned URLs so they don't go stale.
+
+## Cutting a release manually (fallback)
+
+When CI is unavailable, `scripts/cut_release.sh` runs the same flow
+locally for Windows only (no Linux artifacts):
+
+```sh
 python scripts/rebuild_database.py
-
-# 2. Build the installers. Output (X.Y.Z = current version):
-#      src-tauri/target/release/bundle/nsis/Aletheia_X.Y.Z_x64-setup.exe
-#      src-tauri/target/release/bundle/msi/Aletheia_X.Y.Z_x64_en-US.msi
 npm run tauri build
-
-# 3. Cut the GitHub release. Wraps `gh release create`, copies the
-#    versioned NSIS installer to `Aletheia_x64-setup.exe`, and uploads
-#    all three artifacts (versioned NSIS + MSI + version-stripped
-#    alias). The alias is what powers the always-latest download link.
 scripts/cut_release.sh vX.Y.Z "Aletheia X.Y.Z" docs/release-notes/X.Y.Z.md
 ```
 
-The NSIS `*-setup.exe` is the canonical single-executable deploy artifact:
-running it installs the Aletheia app, the bundled icon, and the fully populated
-`aletheia.db` (KJV, NKJV, ESV, SBLGNT, WLC, KJV Apocrypha, plus all 444k Hebrew
-+ Greek word mappings with Strong's IDs). Users do not need Python or any of
-the ingest scripts to use the app.
-
-The version-stripped `Aletheia_x64-setup.exe` is a duplicate of the
-versioned NSIS installer. Its only purpose is to be reachable via
-`https://github.com/jpatton72/Aletheia/releases/latest/download/Aletheia_x64-setup.exe`,
-which GitHub redirects to the matching asset on whichever release is
-flagged Latest. External "download Aletheia" links should use that URL
-instead of a versioned one so they don't go stale.
+Prerequisites: Rust + Cargo (stable), Node 18+, Python 3.10+, the
+Tauri Windows toolchain (WiX, NSIS — auto-downloaded on first build),
+and `gh` (GitHub CLI) authenticated.
 
 ## Upgrading an existing install
 

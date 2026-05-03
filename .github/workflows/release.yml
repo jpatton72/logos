@@ -1,0 +1,193 @@
+# Release workflow: triggered on `git push --tags` for any tag matching
+# `v*`. Builds Windows and Linux installers in parallel, uploads them
+# to a GitHub release named after the tag. Replaces the manual
+# scripts/cut_release.sh flow once it's exercised end-to-end.
+#
+# Linux artifacts: Aletheia_X.Y.Z_amd64.deb + Aletheia_X.Y.Z_amd64.AppImage
+# Windows artifacts: Aletheia_X.Y.Z_x64-setup.exe + Aletheia_X.Y.Z_x64_en-US.msi
+# Plus version-stripped aliases (Aletheia_x64-setup.exe + Aletheia_x64.AppImage)
+# so /releases/latest/download URLs survive every cut without edits.
+#
+# To cut a release: bump version in package.json + tauri.conf.json +
+# Cargo.toml, push to main, then `git tag -a vX.Y.Z -m "..." && git
+# push origin vX.Y.Z`. The workflow takes ~12-15 min on a cold cache,
+# ~5-7 min once data/ + cargo are warm.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create.outputs.id }}
+      version: ${{ steps.create.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create or update release
+        id: create
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
+            const tag = process.env.GITHUB_REF_NAME;
+            const ver = tag.replace(/^v/, '');
+            const notesPath = `docs/release-notes/${ver}.md`;
+            const body = fs.existsSync(notesPath)
+              ? fs.readFileSync(notesPath, 'utf8')
+              : `Aletheia ${ver}`;
+
+            // Idempotent: re-running the workflow on the same tag updates
+            // the existing release rather than failing.
+            let release;
+            try {
+              const existing = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
+              release = (await github.rest.repos.updateRelease({
+                owner, repo, release_id: existing.data.id,
+                name: `Aletheia ${tag}`,
+                body, draft: false, prerelease: false,
+              })).data;
+            } catch (e) {
+              if (e.status !== 404) throw e;
+              release = (await github.rest.repos.createRelease({
+                owner, repo, tag_name: tag,
+                name: `Aletheia ${tag}`,
+                body, draft: false, prerelease: false,
+              })).data;
+            }
+            core.setOutput('id', release.id);
+            core.setOutput('version', ver);
+
+  build:
+    name: Build (${{ matrix.platform }})
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            artifact_glob: 'src-tauri/target/release/bundle/{deb,appimage}/*'
+          - platform: windows-latest
+            artifact_glob: 'src-tauri/target/release/bundle/{nsis,msi}/*'
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Set up Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Tauri's webview + bundler need GTK/WebKit + linuxdeploy's deps
+      # to build the AppImage. Mirrors the Linux install section of
+      # README.md; bumping these requires updating the README too.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            pkg-config
+
+      # Cache the downloaded ingest source corpora (~40 MB of JSON +
+      # OSHB XML + USFM zip). Key includes the ingest scripts so any
+      # change to URLs/sources busts the cache and re-pulls.
+      - name: Cache ingest source corpora
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: aletheia-data-v1-${{ runner.os }}-${{ hashFiles('scripts/ingest*.py', 'scripts/rebuild_database.py') }}
+          restore-keys: |
+            aletheia-data-v1-${{ runner.os }}-
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build bundled database
+        run: python scripts/rebuild_database.py
+
+      # tauri-action runs `npm run tauri build`, then uploads every
+      # platform-native artifact (.deb + .AppImage on Linux, .exe + .msi
+      # on Windows) to the release we created in `prepare`.
+      - name: Build Tauri bundle + upload to release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          releaseId: ${{ needs.prepare.outputs.release_id }}
+
+      # Version-stripped alias powers the /releases/latest/download/<file>
+      # redirect used by README + outside links; same trick we already
+      # use for Windows. Update the always-latest URL in README/BUILD.md
+      # whenever a new alias is added here.
+      - name: Upload Windows always-latest alias
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VER="${{ needs.prepare.outputs.version }}"
+          SRC="src-tauri/target/release/bundle/nsis/Aletheia_${VER}_x64-setup.exe"
+          DST="src-tauri/target/release/bundle/nsis/Aletheia_x64-setup.exe"
+          if [ -f "$SRC" ]; then
+            cp "$SRC" "$DST"
+            gh release upload "$GITHUB_REF_NAME" "$DST" --clobber
+          else
+            echo "::warning::Versioned NSIS installer not found at $SRC; skipping alias"
+          fi
+
+      - name: Upload Linux always-latest aliases
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # AppImage is the closest analogue to the NSIS installer for
+          # Linux: single self-contained file, double-click to run, no
+          # root needed. .deb is the secondary "system install" path.
+          APPIMAGE=$(ls src-tauri/target/release/bundle/appimage/*.AppImage 2>/dev/null | head -1)
+          if [ -n "$APPIMAGE" ]; then
+            cp "$APPIMAGE" "src-tauri/target/release/bundle/appimage/Aletheia_x64.AppImage"
+            gh release upload "$GITHUB_REF_NAME" "src-tauri/target/release/bundle/appimage/Aletheia_x64.AppImage" --clobber
+          else
+            echo "::warning::AppImage not found; skipping alias"
+          fi
+
+          DEB=$(ls src-tauri/target/release/bundle/deb/*.deb 2>/dev/null | head -1)
+          if [ -n "$DEB" ]; then
+            cp "$DEB" "src-tauri/target/release/bundle/deb/Aletheia_amd64.deb"
+            gh release upload "$GITHUB_REF_NAME" "src-tauri/target/release/bundle/deb/Aletheia_amd64.deb" --clobber
+          else
+            echo "::warning::.deb not found; skipping alias"
+          fi

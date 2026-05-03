@@ -80,10 +80,39 @@ keyring entries (under the old `com.logos.app` service) are also copied
 over to the new `com.aletheia.app` service on first launch so you don't
 have to re-paste keys after the rebrand.
 
+### Linux (recommended — prebuilt AppImage)
+
+1. Download `Aletheia_x64.AppImage` from
+   <https://github.com/jpatton72/Aletheia/releases/latest/download/Aletheia_x64.AppImage>
+   (always points at the most recent stable release; per-version
+   `.AppImage` + `.deb` archives + SHA-256 checksums live on the
+   [Releases page](https://github.com/jpatton72/Aletheia/releases)).
+2. Make it executable and run it:
+   ```bash
+   chmod +x ~/Downloads/Aletheia_x64.AppImage
+   ~/Downloads/Aletheia_x64.AppImage
+   ```
+   The AppImage is self-contained — no install step, no root needed.
+3. Or install the `.deb` for system-wide integration:
+   ```bash
+   wget https://github.com/jpatton72/Aletheia/releases/latest/download/Aletheia_amd64.deb
+   sudo dpkg -i Aletheia_amd64.deb
+   ```
+
+The database is created at `~/.local/share/aletheia/Aletheia/data/aletheia.db`
+on first launch. The `.AppImage` and `.deb` ship with the same fully
+populated bundled DB as the Windows installer (~99 MB unpacked).
+
+**Secret Service daemon.** The AI assistant stores API keys in the OS
+credential vault, which on Linux needs a running Secret Service
+provider (gnome-keyring-daemon / KWallet / KeePassXC's secret-service
+integration). Most desktop environments ship one; minimal/tiling-WM
+setups may need to install one.
+
 ### Linux (build from source)
 
-There are no prebuilt Linux packages yet. Build the app from this
-repository.
+Only needed if you want to hack on Aletheia or run an unreleased
+build. Otherwise prefer the AppImage above.
 
 #### 1. Install build dependencies
 
@@ -175,15 +204,6 @@ sudo install -Dm755 src-tauri/target/release/aletheia /usr/local/bin/aletheia
 
 The database is created at `~/.local/share/aletheia/Aletheia/data/aletheia.db` on
 first launch.
-
-**Secret Service daemon.** To use the AI assistant, Linux needs a
-running Secret Service provider for the OS credential vault. GNOME and
-KDE ship one by default (`gnome-keyring-daemon` / `kwalletmanager`).
-Minimal/tiling-WM setups may need to install one — KeePassXC with
-"Enable Secret Service integration" checked in its settings is the
-lightest option. Without a provider running, key saves will silently
-fail and the app will report "No API key found for provider …" when you
-try to use AI.
 
 ### macOS (build from source)
 
