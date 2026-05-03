@@ -1,6 +1,6 @@
 [package]
 name = "aletheia"
-version = "0.1.4"
+version = "0.1.5"
 description = "Aletheia - Bible Study Application"
 authors = ["Aletheia Team"]
 edition = "2021"
@@ -13,7 +13,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# `devtools` enables the F12 / right-click → Inspect element menu in
+# production builds too — useful for beta testers reporting visual
+# bugs. Tauri's debug-build default already includes it; this flag
+# turns it on for `cargo build --release` as well. Drop the feature
+# before a stable/no-debug release if we want a tighter surface.
+tauri = { version = "2", features = ["devtools"] }
 tauri-plugin-opener = "2"
 # tauri-plugin-updater = "2"  # DISABLED: build script needs write access to target dir (container root restriction)
 serde = { version = "1", features = ["derive"] }
