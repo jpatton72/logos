@@ -103,6 +103,31 @@ The database is created at `~/.local/share/aletheia/Aletheia/data/aletheia.db`
 on first launch. The `.AppImage` and `.deb` ship with the same fully
 populated bundled DB as the Windows installer (~99 MB unpacked).
 
+**Upgrading from a previous version.** Both formats upgrade in place
+without losing your notes, bookmarks, AI conversation history, or
+saved API keys — the user-data DB lives outside the package and is
+shared across versions.
+
+For the AppImage, just replace the file:
+
+```bash
+# Replace your existing AppImage with the latest:
+wget -O ~/Downloads/Aletheia_x64.AppImage \
+  https://github.com/jpatton72/Aletheia/releases/latest/download/Aletheia_x64.AppImage
+chmod +x ~/Downloads/Aletheia_x64.AppImage
+```
+
+For the `.deb`, `dpkg -i` handles the upgrade:
+
+```bash
+wget https://github.com/jpatton72/Aletheia/releases/latest/download/Aletheia_amd64.deb
+sudo dpkg -i Aletheia_amd64.deb
+```
+
+First launch after upgrading runs the same one-time backfill the
+Windows build does — schema migrations and `english_word_alignment`
+/ `english_strongs_index` get topped up from the bundled DB.
+
 **Secret Service daemon.** The AI assistant stores API keys in the OS
 credential vault, which on Linux needs a running Secret Service
 provider (gnome-keyring-daemon / KWallet / KeePassXC's secret-service
