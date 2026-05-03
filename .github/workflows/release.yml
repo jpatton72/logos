@@ -137,57 +137,66 @@ jobs:
       - name: Build bundled database
         run: python scripts/rebuild_database.py
 
-      # tauri-action runs `npm run tauri build`, then uploads every
-      # platform-native artifact (.deb + .AppImage on Linux, .exe + .msi
-      # on Windows) to the release we created in `prepare`.
-      - name: Build Tauri bundle + upload to release
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          releaseId: ${{ needs.prepare.outputs.release_id }}
+      # Run tauri build directly. Earlier the workflow used
+      # tauri-apps/tauri-action@v0 to do this AND upload, but it
+      # reported "No artifacts were found" when Tauri 2 produces both
+      # capital-A "Aletheia_*" (productName) and lowercase "aletheia_*"
+      # (cargo name) variants. Bypassing the action with a plain
+      # `tauri build` + `gh release upload` is more predictable.
+      - name: Build Tauri bundle
+        run: npm run tauri build
 
-      # Version-stripped alias powers the /releases/latest/download/<file>
-      # redirect used by README + outside links; same trick we already
-      # use for Windows. Update the always-latest URL in README/BUILD.md
-      # whenever a new alias is added here.
-      - name: Upload Windows always-latest alias
+      # Upload every produced installer + the version-stripped
+      # always-latest alias for the canonical platform installer.
+      # Each platform's matrix branch picks its own glob and aliases.
+      - name: Upload Windows artifacts
         if: runner.os == 'Windows'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -e
           VER="${{ needs.prepare.outputs.version }}"
-          SRC="src-tauri/target/release/bundle/nsis/Aletheia_${VER}_x64-setup.exe"
-          DST="src-tauri/target/release/bundle/nsis/Aletheia_x64-setup.exe"
-          if [ -f "$SRC" ]; then
-            cp "$SRC" "$DST"
-            gh release upload "$GITHUB_REF_NAME" "$DST" --clobber
-          else
-            echo "::warning::Versioned NSIS installer not found at $SRC; skipping alias"
+          TAG="${{ github.ref_name }}"
+          NSIS="src-tauri/target/release/bundle/nsis/Aletheia_${VER}_x64-setup.exe"
+          MSI="src-tauri/target/release/bundle/msi/Aletheia_${VER}_x64_en-US.msi"
+          if [ ! -f "$NSIS" ] || [ ! -f "$MSI" ]; then
+            echo "::error::Expected installers missing; bundle dir contents:"
+            ls -la src-tauri/target/release/bundle/nsis/ src-tauri/target/release/bundle/msi/ || true
+            exit 1
           fi
+          cp "$NSIS" "src-tauri/target/release/bundle/nsis/Aletheia_x64-setup.exe"
+          gh release upload "$TAG" \
+            "$NSIS" \
+            "$MSI" \
+            "src-tauri/target/release/bundle/nsis/Aletheia_x64-setup.exe" \
+            --clobber
 
-      - name: Upload Linux always-latest aliases
+      - name: Upload Linux artifacts
         if: runner.os == 'Linux'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # AppImage is the closest analogue to the NSIS installer for
-          # Linux: single self-contained file, double-click to run, no
-          # root needed. .deb is the secondary "system install" path.
-          APPIMAGE=$(ls src-tauri/target/release/bundle/appimage/*.AppImage 2>/dev/null | head -1)
-          if [ -n "$APPIMAGE" ]; then
-            cp "$APPIMAGE" "src-tauri/target/release/bundle/appimage/Aletheia_x64.AppImage"
-            gh release upload "$GITHUB_REF_NAME" "src-tauri/target/release/bundle/appimage/Aletheia_x64.AppImage" --clobber
-          else
-            echo "::warning::AppImage not found; skipping alias"
+          set -e
+          TAG="${{ github.ref_name }}"
+          # Tauri 2 emits both "Aletheia_*" (capital, productName) and
+          # "aletheia_*" (lowercase, cargo package name) for .deb and
+          # .AppImage. They're identical files; pick the capital-A
+          # variant since it matches the Windows naming.
+          APPIMAGE=$(ls src-tauri/target/release/bundle/appimage/Aletheia_*.AppImage 2>/dev/null | head -1)
+          DEB=$(ls src-tauri/target/release/bundle/deb/Aletheia_*.deb 2>/dev/null | head -1)
+          if [ -z "$APPIMAGE" ] || [ -z "$DEB" ]; then
+            echo "::error::Expected Linux installers missing; bundle dir contents:"
+            ls -la src-tauri/target/release/bundle/ || true
+            ls -la src-tauri/target/release/bundle/deb/ src-tauri/target/release/bundle/appimage/ 2>/dev/null || true
+            exit 1
           fi
-
-          DEB=$(ls src-tauri/target/release/bundle/deb/*.deb 2>/dev/null | head -1)
-          if [ -n "$DEB" ]; then
-            cp "$DEB" "src-tauri/target/release/bundle/deb/Aletheia_amd64.deb"
-            gh release upload "$GITHUB_REF_NAME" "src-tauri/target/release/bundle/deb/Aletheia_amd64.deb" --clobber
-          else
-            echo "::warning::.deb not found; skipping alias"
-          fi
+          cp "$APPIMAGE" "src-tauri/target/release/bundle/appimage/Aletheia_x64.AppImage"
+          cp "$DEB" "src-tauri/target/release/bundle/deb/Aletheia_amd64.deb"
+          gh release upload "$TAG" \
+            "$APPIMAGE" \
+            "$DEB" \
+            "src-tauri/target/release/bundle/appimage/Aletheia_x64.AppImage" \
+            "src-tauri/target/release/bundle/deb/Aletheia_amd64.deb" \
+            --clobber
