@@ -576,6 +576,50 @@ export async function updateReadingProgress(
 }
 
 // ============================================================================
+// Audio (Optional Piper TTS) Commands
+// ============================================================================
+//
+// Piper voice + binary live in the user-data dir, NOT in the installer.
+// The first call to `audioInstallVoice` downloads ~88 MB; until then
+// `audioStatus().installed` is false and the Listen buttons should be
+// hidden. After install, `audioSynthesize` returns WAV bytes that the
+// frontend wraps in a Blob URL for `<audio>` playback.
+
+export interface AudioStatus {
+  installed: boolean;
+  voice_id: string | null;
+  disk_bytes: number;
+  piper_release: string;
+}
+
+export async function audioStatus(): Promise<AudioStatus> {
+  return invoke<AudioStatus>("audio_status");
+}
+
+/** Downloads Piper + the chosen voice. Long-running on a fresh install. */
+export async function audioInstallVoice(voiceId?: string): Promise<void> {
+  return invoke<void>("audio_install_voice", { voiceId: voiceId ?? null });
+}
+
+/** Synthesize `text` to WAV bytes. The Rust side returns `Vec<u8>`,
+ *  which Tauri serializes as a JS number array — coerce to Uint8Array
+ *  here so callers always get a typed buffer. */
+export async function audioSynthesize(
+  text: string,
+  voiceId?: string,
+): Promise<Uint8Array> {
+  const raw = await invoke<number[] | Uint8Array>("audio_synthesize", {
+    text,
+    voiceId: voiceId ?? null,
+  });
+  return raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+}
+
+export async function audioUninstall(): Promise<void> {
+  return invoke<void>("audio_uninstall");
+}
+
+// ============================================================================
 // Ingest Commands
 // ============================================================================
 

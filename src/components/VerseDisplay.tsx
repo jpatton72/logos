@@ -2,8 +2,48 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '../store/useAppStore';
 import { createBookmark, deleteBookmark, getKetivQere, getStrongsGreek, getStrongsHebrew } from '../api';
+import { audioStatus, audioSynthesize } from '../lib/tauri';
 import type { VerseGroup, WordMapping, KetivQere, VerseWithWords, StrongsGreek, StrongsHebrew, EnglishToken } from '../lib/tauri';
 import { parseGreekMorphology, parseHebrewMorphology } from '../lib/morphology';
+import { playWav, stopAudio, subscribePlayback, currentPlaybackToken } from '../lib/audioPlayback';
+
+// Module-level cache of the audio install state. The Listen button is
+// hidden until Piper is installed; probing once per app session is
+// enough since install/uninstall happen in Settings, which dispatches
+// the `aletheia:audio-status-changed` event after either action so any
+// mounted verse re-checks.
+let cachedInstalled: boolean | null = null;
+let pendingProbe: Promise<boolean> | null = null;
+
+async function isAudioInstalled(): Promise<boolean> {
+  if (cachedInstalled !== null) return cachedInstalled;
+  if (!pendingProbe) {
+    pendingProbe = audioStatus()
+      .then((s) => {
+        cachedInstalled = s.installed;
+        return s.installed;
+      })
+      .catch(() => {
+        cachedInstalled = false;
+        return false;
+      })
+      .finally(() => {
+        pendingProbe = null;
+      });
+  }
+  return pendingProbe;
+}
+
+export const AUDIO_STATUS_EVENT = 'aletheia:audio-status-changed';
+
+/** Called by Settings after install/uninstall succeeds — clears the
+ *  cached probe and broadcasts so every mounted VerseDisplay flips its
+ *  Listen-button visibility immediately. */
+export function notifyAudioStatusChanged(): void {
+  cachedInstalled = null;
+  pendingProbe = null;
+  window.dispatchEvent(new Event(AUDIO_STATUS_EVENT));
+}
 
 // ============================================================================
 // Word Tooltip
@@ -403,6 +443,28 @@ export function VerseDisplay({ group, originalVerses, englishAlignment }: VerseD
   } = useAppStore();
   const [bmHover, setBmHover] = useState(false);
   const [ketivQere, setKetivQere] = useState<Record<number, KetivQere[]>>({});
+  const [audioReady, setAudioReady] = useState<boolean>(cachedInstalled ?? false);
+  // Per-verse playback state. `playingToken` is the symbol returned by
+  // playWav for *this* verse's clip; comparing it against
+  // currentPlaybackToken() answers "am I still the active one?". `synth`
+  // is true while the Rust side is generating WAV bytes.
+  const [playingToken, setPlayingToken] = useState<symbol | null>(null);
+  const [synth, setSynth] = useState(false);
+
+  useEffect(() => {
+    isAudioInstalled().then(setAudioReady);
+    const onChange = () => isAudioInstalled().then(setAudioReady);
+    window.addEventListener(AUDIO_STATUS_EVENT, onChange);
+    return () => window.removeEventListener(AUDIO_STATUS_EVENT, onChange);
+  }, []);
+
+  // Reflect global stop / another verse starting playback.
+  useEffect(() => {
+    const unsub = subscribePlayback((tok) => {
+      if (tok !== playingToken) setPlayingToken(null);
+    });
+    return unsub;
+  }, [playingToken]);
 
   const verseRef = {
     book: currentBook.toLowerCase(),
@@ -443,6 +505,25 @@ export function VerseDisplay({ group, originalVerses, englishAlignment }: VerseD
       }
     })();
   }, [group.verse_num, originalVerses]);
+
+  const handleListen = async (verseText: string) => {
+    if (synth) return;
+    // Already playing this verse → toggle off.
+    if (playingToken && currentPlaybackToken() === playingToken) {
+      stopAudio();
+      return;
+    }
+    setSynth(true);
+    try {
+      const bytes = await audioSynthesize(verseText);
+      const tok = playWav(bytes);
+      setPlayingToken(tok);
+    } catch (e) {
+      console.error('TTS failed:', e);
+    } finally {
+      setSynth(false);
+    }
+  };
 
   const handleBookmark = async () => {
     if (!primaryVerse) return;
@@ -543,6 +624,61 @@ export function VerseDisplay({ group, originalVerses, englishAlignment }: VerseD
                 return verse.text;
               })()}
             </p>
+            {/* Listen button — only after the optional Piper voice is
+                installed. Same on-hover visibility as the bookmark
+                button so the verse stays uncluttered when idle. */}
+            {audioReady && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleListen(verse.text);
+                }}
+                disabled={synth}
+                title={
+                  synth
+                    ? 'Generating audio…'
+                    : playingToken && currentPlaybackToken() === playingToken
+                    ? 'Stop playback'
+                    : 'Listen to this verse'
+                }
+                style={{
+                  opacity: bmHover || isActive || playingToken !== null ? 1 : 0,
+                  background: 'none',
+                  border: 'none',
+                  cursor: synth ? 'wait' : 'pointer',
+                  padding: '2px',
+                  borderRadius: '4px',
+                  color:
+                    playingToken && currentPlaybackToken() === playingToken
+                      ? '#d97706'
+                      : darkMode
+                      ? '#78716c'
+                      : '#92400e',
+                  transition: 'opacity 0.15s',
+                  flexShrink: 0,
+                  marginTop: '2px',
+                }}
+              >
+                {playingToken && currentPlaybackToken() === playingToken ? (
+                  // Stop (filled square)
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="6" y="6" width="12" height="12" rx="1" />
+                  </svg>
+                ) : synth ? (
+                  // Hourglass-ish dot while synthesis is in flight
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="3" fill="currentColor" />
+                  </svg>
+                ) : (
+                  // Speaker icon
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                  </svg>
+                )}
+              </button>
+            )}
             {/* Bookmark button — appears on hover */}
             <button
               onClick={(e) => {

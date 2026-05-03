@@ -14,6 +14,7 @@ import { StrongsSidebar } from './components/StrongsSidebar';
 import { NotesSidebar } from './components/NotesSidebar';
 import type { BookmarkWithVerse } from './lib/tauri';
 import { useFocusTrap } from './lib/useFocusTrap';
+import { stopAudio } from './lib/audioPlayback';
 
 const ORIGINAL_LANG_CODES = new Set(['wlc', 'sblgnt', 'oshb']);
 
@@ -207,6 +208,9 @@ function AppInner() {
           break;
         case 'Escape':
           e.preventDefault();
+          // Stop any verse narration in flight regardless of which
+          // overlay is open — Esc is the universal "make audio stop" key.
+          stopAudio();
           if (showKeyboardHelp) {
             setShowKeyboardHelp(false);
           } else if (showStrongsPopup) {

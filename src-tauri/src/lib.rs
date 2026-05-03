@@ -6,13 +6,14 @@ use tracing_subscriber::fmt::format::FmtSpan;
 mod commands;
 mod database;
 pub mod ai;
+pub mod audio;
 pub mod secrets;
 
 use commands::{
-    ai_chat, compare_verses, create_bookmark, create_note, delete_ai_conversation,
-    delete_api_key, delete_bookmark, delete_note, export_notes_and_bookmarks, get_ai_conversation,
-    get_book_index, get_bookmarks, get_chapter, get_chapter_counts,
-    get_chapter_english_alignment, get_chapter_originals,
+    ai_chat, audio_install_voice, audio_status, audio_synthesize, audio_uninstall, compare_verses,
+    create_bookmark, create_note, delete_ai_conversation, delete_api_key, delete_bookmark,
+    delete_note, export_notes_and_bookmarks, get_ai_conversation, get_book_index, get_bookmarks,
+    get_chapter, get_chapter_counts, get_chapter_english_alignment, get_chapter_originals,
     get_ketiv_qere, get_notes, get_preference, get_reading_progress, get_strongs_greek,
     get_strongs_hebrew, get_verse, get_verse_words, has_api_key, list_ai_conversations,
     lookup_english_term, populate_terms_fts, save_ai_conversation, search_notes, search_terms,
@@ -29,7 +30,7 @@ pub struct AppState {
 }
 
 /// Resolve the app data directory. Returns ~/.local/share/aletheia on Unix.
-fn get_app_data_dir() -> PathBuf {
+pub fn get_app_data_dir() -> PathBuf {
     if let Some(proj_dirs) = ProjectDirs::from("com", "aletheia", "Aletheia") {
         proj_dirs.data_dir().to_path_buf()
     } else {
@@ -334,6 +335,10 @@ pub fn run() {
             update_ai_conversation_title,
             get_reading_progress,
             update_reading_progress,
+            audio_status,
+            audio_install_voice,
+            audio_synthesize,
+            audio_uninstall,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,0 +1,123 @@
+{
+  "_comment": "Pronunciation overrides applied to verse text before sending to Piper TTS. Keys match \\bword\\b case-insensitively in the source verse; values are respellings that espeak-ng (Piper's G2P engine) pronounces correctly. The respelling on the right is what gets fed to TTS — the user never sees it. Add entries as testers report mispronunciations.",
+
+  "Abednego": "Abed-knee-go",
+  "Abimelech": "Abimelek",
+  "Adonijah": "Adonye-juh",
+  "Ahasuerus": "Ahaz-yoo-eer-us",
+  "Amalekites": "Amalek-ites",
+  "Amaziah": "Ama-zye-uh",
+  "Aminadab": "Ah-minna-dab",
+  "Aristarchus": "Aris-tar-kus",
+  "Artaxerxes": "Arta-zerk-seez",
+  "Azariah": "Aza-rye-uh",
+
+  "Baasha": "Bay-asha",
+  "Beelzebub": "Bee-elzebub",
+  "Beersheba": "Beer-shee-bah",
+  "Belshazzar": "Bell-shazzar",
+  "Bethsaida": "Beth-say-da",
+
+  "Caesarea": "Sess-uh-ree-uh",
+  "Caiaphas": "Kye-uh-fass",
+  "Capernaum": "Ka-purr-nay-um",
+  "Cenchrea": "Sen-kree-uh",
+  "Chedorlaomer": "Keddor-lay-omer",
+  "Chemosh": "Kee-mosh",
+  "Cyrenius": "Sigh-reenius",
+
+  "Daberath": "Dabba-rath",
+  "Dalmatia": "Dal-may-shuh",
+  "Decapolis": "Dec-app-uh-liss",
+  "Demetrius": "Demee-tree-us",
+
+  "Ecclesiastes": "Eck-leezi-astees",
+  "Eliashib": "Elie-ashib",
+  "Eliphaz": "Elee-fazz",
+  "Epaphras": "Epp-uh-frass",
+  "Epaphroditus": "Epp-uffro-dye-tus",
+  "Esdraelon": "Ezz-druh-ee-lon",
+  "Eutychus": "Yoo-tih-kus",
+
+  "Gamaliel": "Guh-may-lee-el",
+  "Gennesaret": "Ge-ness-uh-ret",
+  "Gershonites": "Gur-shonites",
+  "Gomorrah": "Guh-morr-uh",
+
+  "Habakkuk": "Habba-kook",
+  "Haggai": "Hagg-eye",
+  "Hananiah": "Hanna-nye-uh",
+  "Hezekiah": "Hezza-kye-uh",
+  "Holofernes": "Holo-fur-neez",
+
+  "Ichabod": "Ick-uh-bod",
+  "Iconium": "Eye-kone-ium",
+  "Isaiah": "Eye-zay-uh",
+
+  "Jehoiakim": "Je-hoy-uh-kim",
+  "Jehoshaphat": "Je-hosh-uh-fat",
+  "Jeremiah": "Jerra-my-uh",
+  "Jezreel": "Jezz-reel",
+  "Joash": "Joe-ash",
+
+  "Kadesh-Barnea": "Kay-desh Bar-nee-uh",
+  "Kohathites": "Ko-hath-ites",
+
+  "Laodicea": "Lay-odd-uh-see-uh",
+  "Lemuel": "Lemmu-el",
+
+  "Maccabees": "Mack-uh-bees",
+  "Magdalene": "Mag-duh-leen",
+  "Mahershalalhashbaz": "Mah-her shall-al hash-baz",
+  "Malachi": "Malla-kye",
+  "Manasseh": "Manasseh",
+  "Mephibosheth": "Mefibosheth",
+  "Meshach": "Mee-shak",
+  "Methuselah": "Meth-yoo-suh-lah",
+
+  "Nahor": "Nay-hor",
+  "Naphtali": "Naffta-lye",
+  "Nathanael": "Nuh-than-yel",
+  "Nebuchadnezzar": "Neb-yoo-kud-nezz-er",
+  "Nehemiah": "Nee-uh-my-uh",
+  "Nicodemus": "Nicko-dee-mus",
+
+  "Onesimus": "Oh-ness-uh-mus",
+  "Ophrah": "Off-rah",
+
+  "Paphos": "Pay-foss",
+  "Pentateuch": "Pent-a-tyook",
+  "Pergamum": "Pur-guh-mum",
+  "Phinehas": "Fin-ee-uss",
+  "Philippi": "Fih-lippy",
+
+  "Rabboni": "Rab-bo-nye",
+  "Rehoboam": "Ree-uh-bo-am",
+  "Reuel": "Roo-el",
+
+  "Sadducees": "Sadd-yoo-seez",
+  "Samaritans": "Suh-mar-uh-tans",
+  "Sennacherib": "Sen-ackuh-rib",
+  "Septuagint": "Sept-yoo-uh-jint",
+  "Shadrach": "Shad-rak",
+  "Shaphan": "Shay-fan",
+  "Shealtiel": "Shee-alti-el",
+  "Sychar": "Sye-kar",
+
+  "Tarshish": "Tar-shish",
+  "Tetrarch": "Tet-rark",
+  "Theophilus": "Thee-off-uh-lus",
+  "Tychicus": "Tick-uh-kus",
+
+  "Uzziah": "Uz-zye-uh",
+
+  "Yahweh": "Yah-weh",
+
+  "Zacchaeus": "Zack-ee-us",
+  "Zebedee": "Zeb-uh-dee",
+  "Zechariah": "Zecka-rye-uh",
+  "Zedekiah": "Zedda-kye-uh",
+  "Zephaniah": "Zeffa-nye-uh",
+  "Zerubbabel": "Zuh-rubba-bell",
+  "Zimri": "Zim-rye"
+}

@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod audio;
 pub mod bookmarks;
 pub mod export;
 pub mod ingest;
@@ -23,3 +24,5 @@ pub use ai::{
     ai_chat, delete_ai_conversation, delete_api_key, get_ai_conversation, has_api_key,
     list_ai_conversations, save_ai_conversation, set_api_key, update_ai_conversation_title,
 };
+
+pub use audio::{audio_install_voice, audio_status, audio_synthesize, audio_uninstall};

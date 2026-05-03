@@ -1,7 +1,29 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { getPreference, setPreference, setApiKey, hasApiKey } from '../lib/tauri';
+import {
+  getPreference,
+  setPreference,
+  setApiKey,
+  hasApiKey,
+  audioStatus,
+  audioInstallVoice,
+  audioUninstall,
+  type AudioStatus,
+} from '../lib/tauri';
 import { type AiProvider, PROVIDER_LABELS, PROVIDER_MODELS, defaultModelFor } from '../lib/aiModels';
+import { notifyAudioStatusChanged } from '../components/VerseDisplay';
+
+function formatBytes(n: number): string {
+  if (n <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
+}
 
 const ALL_PROVIDERS: AiProvider[] = ['openai', 'anthropic', 'google', 'groq', 'ollama'];
 
@@ -34,6 +56,21 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  // Audio (Piper TTS) state. `audio` is null until the first status
+  // probe completes; `audioBusy` covers both install and uninstall so
+  // the buttons can't double-fire while a download is in flight.
+  const [audio, setAudio] = useState<AudioStatus | null>(null);
+  const [audioBusy, setAudioBusy] = useState<null | 'install' | 'uninstall'>(null);
+  const [audioError, setAudioError] = useState<string | null>(null);
+
+  const refreshAudioStatus = async () => {
+    try {
+      setAudio(await audioStatus());
+    } catch (e) {
+      console.error('Failed to load audio status:', e);
+    }
+  };
+
   // Load preferences on mount
   useEffect(() => {
     (async () => {
@@ -55,8 +92,40 @@ export default function Settings() {
           return acc;
         }, {} as Record<AiProvider, boolean>)
       );
+      await refreshAudioStatus();
     })();
   }, []);
+
+  const handleInstallAudio = async () => {
+    setAudioBusy('install');
+    setAudioError(null);
+    try {
+      await audioInstallVoice();
+      await refreshAudioStatus();
+      notifyAudioStatusChanged();
+    } catch (e) {
+      setAudioError(typeof e === 'string' ? e : (e as Error).message);
+    } finally {
+      setAudioBusy(null);
+    }
+  };
+
+  const handleUninstallAudio = async () => {
+    if (!window.confirm('Remove the downloaded voice and Piper binary? This frees ~88 MB. You can reinstall any time.')) {
+      return;
+    }
+    setAudioBusy('uninstall');
+    setAudioError(null);
+    try {
+      await audioUninstall();
+      await refreshAudioStatus();
+      notifyAudioStatusChanged();
+    } catch (e) {
+      setAudioError(typeof e === 'string' ? e : (e as Error).message);
+    } finally {
+      setAudioBusy(null);
+    }
+  };
 
   const handleProviderChange = (newProvider: AiProvider) => {
     setProvider(newProvider);
@@ -294,6 +363,75 @@ export default function Settings() {
         >
           {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save AI Settings'}
         </button>
+      </section>
+
+      {/* Audio (Piper TTS) */}
+      <section style={{ marginBottom: '2rem', padding: '1.25rem', borderRadius: '12px', backgroundColor: darkMode ? '#1a1a14' : '#fefce8', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>
+        <h3 style={sectionTitleStyle}>Audio (Verse Narration)</h3>
+        <p style={{ fontSize: '0.75rem', color: darkMode ? '#a8a29e' : '#78716c', margin: '0 0 1rem', lineHeight: 1.5 }}>
+          Optional offline text-to-speech via <a href="https://github.com/rhasspy/piper" target="_blank" rel="noopener noreferrer" style={{ color: '#92400e' }}>Piper</a>.
+          Adds a Listen button to every verse. Downloads ~88 MB (binary + voice model) on first install; nothing leaves your machine after that.
+        </p>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', fontSize: '0.8rem' }}>
+          <span>
+            Status:{' '}
+            <span style={{ fontWeight: 600, color: audio?.installed ? '#15803d' : (darkMode ? '#a8a29e' : '#78716c') }}>
+              {audio === null ? 'Loading…' : audio.installed ? `Installed (${audio.voice_id})` : 'Not installed'}
+            </span>
+          </span>
+          {audio?.installed && (
+            <span style={{ color: darkMode ? '#a8a29e' : '#78716c', fontSize: '0.7rem' }}>
+              {formatBytes(audio.disk_bytes)} on disk
+            </span>
+          )}
+        </div>
+
+        {audioError && (
+          <div style={{ marginBottom: '0.75rem', padding: '0.5rem 0.75rem', borderRadius: '6px', backgroundColor: darkMode ? '#3f1d1d' : '#fef2f2', color: darkMode ? '#fca5a5' : '#991b1b', fontSize: '0.75rem', whiteSpace: 'pre-wrap' }}>
+            {audioError}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          {!audio?.installed ? (
+            <button
+              onClick={handleInstallAudio}
+              disabled={audioBusy !== null}
+              style={{
+                padding: '0.5rem 1.25rem',
+                borderRadius: '8px',
+                border: 'none',
+                backgroundColor: '#92400e',
+                color: '#fff',
+                cursor: audioBusy ? 'wait' : 'pointer',
+                fontWeight: 600,
+                fontSize: '0.8rem',
+                opacity: audioBusy ? 0.6 : 1,
+              }}
+            >
+              {audioBusy === 'install' ? 'Downloading… (~88 MB)' : 'Install voice'}
+            </button>
+          ) : (
+            <button
+              onClick={handleUninstallAudio}
+              disabled={audioBusy !== null}
+              style={{
+                padding: '0.5rem 1.25rem',
+                borderRadius: '8px',
+                border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}`,
+                backgroundColor: 'transparent',
+                color: darkMode ? '#f5f5f4' : '#292524',
+                cursor: audioBusy ? 'wait' : 'pointer',
+                fontWeight: 600,
+                fontSize: '0.8rem',
+                opacity: audioBusy ? 0.6 : 1,
+              }}
+            >
+              {audioBusy === 'uninstall' ? 'Removing…' : 'Uninstall'}
+            </button>
+          )}
+        </div>
       </section>
 
       {/* About / Attributions */}

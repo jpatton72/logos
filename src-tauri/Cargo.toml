@@ -1,6 +1,6 @@
 [package]
 name = "aletheia"
-version = "0.1.7"
+version = "0.1.8"
 description = "Aletheia - Bible Study Application"
 authors = ["Aletheia Team"]
 edition = "2021"
@@ -39,3 +39,9 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 # preferences table so they aren't readable from raw DB backups. v3
 # requires explicit platform features — defaults are mock-only.
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+# Archive extraction for the optional Piper TTS download. zip on Windows
+# (piper_windows_amd64.zip), tar.gz on Linux (piper_linux_x86_64.tar.gz).
+# Both crates are pure Rust so no system deps and no cross-compile pain.
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+tar = "0.4"
+flate2 = "1.0"
