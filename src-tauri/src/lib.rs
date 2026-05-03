@@ -98,6 +98,99 @@ fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Top up data tables that were added in later schema versions and may
+/// have been left empty on upgrade installs. The bundled-DB seed only
+/// fires when the user has no database yet; users upgrading from older
+/// versions get the new tables created by the schema migration but
+/// never populated. ATTACH the bundled DB and copy the rows the user
+/// is missing, joining on book/chapter/verse_num so verse-id drift
+/// between the bundle and the user's DB doesn't matter.
+///
+/// Idempotent: each table is checked individually and only filled if
+/// the user table is empty. Best-effort: any error is logged and
+/// swallowed so a missing or corrupt bundle can't block startup.
+fn backfill_data_from_bundle(db: &Database) {
+    let bundle = match std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|p| p.join("aletheia.db")))
+    {
+        Some(p) if p.exists() => p,
+        _ => {
+            info!("No bundled DB next to the binary; skipping data backfill");
+            return;
+        }
+    };
+
+    let conn = db.conn.lock().unwrap();
+    let count = |sql: &str| -> i64 {
+        conn.query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap_or(0)
+    };
+    let needs_alignment = count("SELECT COUNT(*) FROM english_word_alignment") == 0;
+    let needs_strongs_index = count("SELECT COUNT(*) FROM english_strongs_index") == 0;
+
+    if !needs_alignment && !needs_strongs_index {
+        return;
+    }
+
+    // SQLite ATTACH wants the path inline in the SQL. Single-quote-escape
+    // any apostrophes so a path like C:\Users\O'Brien\... still parses.
+    let bundle_str = bundle.to_string_lossy().replace('\'', "''");
+    if let Err(e) = conn.execute(&format!("ATTACH DATABASE '{}' AS bundle", bundle_str), []) {
+        error!("backfill: failed to attach bundle DB: {}", e);
+        return;
+    }
+
+    if needs_alignment {
+        match conn.execute(
+            "INSERT INTO english_word_alignment (verse_id, tokens)
+             SELECT user_v.id, ba.tokens
+             FROM bundle.english_word_alignment ba
+             JOIN bundle.verses bv ON bv.id = ba.verse_id
+             JOIN bundle.books bb ON bb.id = bv.book_id
+             JOIN bundle.translations bt ON bt.id = bv.translation_id
+             JOIN main.books user_b ON user_b.abbreviation = bb.abbreviation COLLATE NOCASE
+             JOIN main.translations user_t ON user_t.abbreviation = bt.abbreviation COLLATE NOCASE
+             JOIN main.verses user_v ON user_v.book_id = user_b.id
+                                    AND user_v.chapter = bv.chapter
+                                    AND user_v.verse_num = bv.verse_num
+                                    AND user_v.translation_id = user_t.id
+             WHERE NOT EXISTS (
+                SELECT 1 FROM main.english_word_alignment ua WHERE ua.verse_id = user_v.id
+             )",
+            [],
+        ) {
+            Ok(n) => info!("Backfilled {} english_word_alignment rows from bundle", n),
+            Err(e) => error!("backfill english_word_alignment failed: {}", e),
+        }
+    }
+
+    if needs_strongs_index {
+        match conn.execute(
+            "INSERT INTO english_strongs_index
+                (english_word, strongs_id, language, frequency,
+                 sample_book_id, sample_chapter, sample_verse)
+             SELECT
+                bs.english_word, bs.strongs_id, bs.language, bs.frequency,
+                user_b.id, bs.sample_chapter, bs.sample_verse
+             FROM bundle.english_strongs_index bs
+             LEFT JOIN bundle.books bb ON bb.id = bs.sample_book_id
+             LEFT JOIN main.books user_b ON user_b.abbreviation = bb.abbreviation COLLATE NOCASE
+             WHERE NOT EXISTS (
+                SELECT 1 FROM main.english_strongs_index us
+                WHERE us.english_word = bs.english_word AND us.strongs_id = bs.strongs_id
+             )",
+            [],
+        ) {
+            Ok(n) => info!("Backfilled {} english_strongs_index rows from bundle", n),
+            Err(e) => error!("backfill english_strongs_index failed: {}", e),
+        }
+    }
+
+    if let Err(e) = conn.execute("DETACH DATABASE bundle", []) {
+        error!("backfill: failed to detach bundle DB: {}", e);
+    }
+}
+
 fn setup_logging(app_data_dir: &PathBuf) {
     let logs_dir = app_data_dir.join("logs");
     let _ = std::fs::create_dir_all(&logs_dir);
@@ -156,6 +249,16 @@ fn init_app_state() -> Result<AppState, String> {
         error!("Failed to initialize database: {}", e);
         e.to_string()
     })?;
+
+    // Upgrade-install backfill: tables added in later schema versions
+    // (english_word_alignment in v5, english_strongs_index in v3) are
+    // created empty by the schema migration but never populated when
+    // the user already had a database from an earlier version — the
+    // bundled-DB seed step above only fires when the DB is missing.
+    // Top them up from the bundled DB if the corresponding user table
+    // is empty. Best-effort: any failure here is logged and swallowed
+    // so a missing/corrupt bundle can't brick startup.
+    backfill_data_from_bundle(&db);
 
     // Move any keyring entries left over from the pre-rename `com.logos.app`
     // service into the new `com.aletheia.app` service so existing users

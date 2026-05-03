@@ -69,18 +69,9 @@ export function ChapterView({
     // Attribute-includes selector matches any token whose strongs list
     // contains the ID as a whole space-separated entry.
     const selector = `[data-strongs~="${cssEscapeAttr(hoveredStrongsId)}"]`;
-    const matches = root.querySelectorAll(selector);
-    matches.forEach((el) => {
+    root.querySelectorAll(selector).forEach((el) => {
       el.classList.add('eng-token--highlight');
     });
-    // Diagnostic for the v0.1.4 hover-highlight bug report. Lets the
-    // tester confirm via DevTools whether the effect fires, what ID
-    // is set, and whether any spans match. Remove once the bug is
-    // pinned down.
-    const totalTokens = root.querySelectorAll('.eng-token').length;
-    console.log(
-      `[hover-highlight] id=${hoveredStrongsId} matches=${matches.length} total-eng-tokens-in-chapter=${totalTokens}`,
-    );
   }, [hoveredStrongsId, verses, englishAlignment]);
 
   // Consume any queued scroll-to-verse target. Fires once the verses
