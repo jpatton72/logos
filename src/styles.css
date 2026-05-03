@@ -227,20 +227,24 @@ html.dark .search-highlight {
 /* English token spans rendered from per-verse alignment data. Plain
  * by default; the chapter-level hover effect adds .eng-token--highlight
  * to the spans whose data-strongs matches the currently-hovered
- * Hebrew/Greek word. */
+ * Hebrew/Greek word. The highlight is intentionally heavy enough to
+ * unmistakably register in peripheral vision — earlier 30%-opacity
+ * tints were too subtle on the cream reading background. */
 .eng-token {
   border-radius: 3px;
-  transition: background-color 0.12s ease-out, color 0.12s ease-out;
+  padding: 0 2px;
+  transition: background-color 0.12s ease-out, color 0.12s ease-out, box-shadow 0.12s ease-out;
 }
 .eng-token--highlight {
-  background-color: rgba(217, 119, 6, 0.30);
-  color: #92400e;
-  font-weight: 600;
-  padding: 0 1px;
+  background-color: rgba(217, 119, 6, 0.55);
+  color: #292524;
+  font-weight: 700;
+  box-shadow: 0 0 0 1px rgba(217, 119, 6, 0.7);
 }
 html.dark .eng-token--highlight {
-  background-color: rgba(252, 211, 77, 0.25);
-  color: #fcd34d;
+  background-color: rgba(252, 211, 77, 0.45);
+  color: #1a1a14;
+  box-shadow: 0 0 0 1px rgba(252, 211, 77, 0.7);
 }
 
 /* Gentle flash applied to a verse row after the user lands on it from

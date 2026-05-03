@@ -67,8 +67,12 @@ function WordTooltip({ word, ketivQeres, position, onClose }: WordTooltipProps) 
       onClick={(e) => e.stopPropagation()}
       style={{
         position: 'fixed',
-        top: Math.max(8, position.top - 10),
-        left: Math.min(position.left, window.innerWidth - 300),
+        // Clamp inside the viewport so the popup never gets clipped on
+        // either edge. The right edge (340px popup + 12px margin) is
+        // the bug we're fixing here; the left/top guards keep the
+        // popup on-screen on small windows or near top edges too.
+        top: Math.max(8, Math.min(position.top - 10, window.innerHeight - 100)),
+        left: Math.max(8, Math.min(position.left, window.innerWidth - 352)),
         zIndex: 9999,
         backgroundColor: darkMode ? '#252519' : '#ffffff',
         border: `1px solid ${darkMode ? '#92400e' : '#d97706'}`,
