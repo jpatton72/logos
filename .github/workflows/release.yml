@@ -156,20 +156,27 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-          VER="${{ needs.prepare.outputs.version }}"
           TAG="${{ github.ref_name }}"
-          NSIS="src-tauri/target/release/bundle/nsis/Aletheia_${VER}_x64-setup.exe"
-          MSI="src-tauri/target/release/bundle/msi/Aletheia_${VER}_x64_en-US.msi"
-          if [ ! -f "$NSIS" ] || [ ! -f "$MSI" ]; then
-            echo "::error::Expected installers missing; bundle dir contents:"
-            ls -la src-tauri/target/release/bundle/nsis/ src-tauri/target/release/bundle/msi/ || true
+          BUNDLE_ROOT="src-tauri/target/release/bundle"
+          echo "::group::Bundle directory contents"
+          find "$BUNDLE_ROOT" -type f 2>/dev/null | sort
+          echo "::endgroup::"
+
+          NSIS=$(find "$BUNDLE_ROOT/nsis" -maxdepth 1 -type f -iname 'aletheia_*x64-setup.exe' -print -quit 2>/dev/null || true)
+          MSI=$(find "$BUNDLE_ROOT/msi" -maxdepth 1 -type f -iname 'aletheia_*.msi' -print -quit 2>/dev/null || true)
+
+          if [ -z "$NSIS" ] || [ -z "$MSI" ]; then
+            echo "::error::Expected installers missing (NSIS='$NSIS' MSI='$MSI')"
             exit 1
           fi
-          cp "$NSIS" "src-tauri/target/release/bundle/nsis/Aletheia_x64-setup.exe"
+          echo "Found NSIS=$NSIS"
+          echo "Found MSI=$MSI"
+
+          cp "$NSIS" "$BUNDLE_ROOT/nsis/Aletheia_x64-setup.exe"
           gh release upload "$TAG" \
             "$NSIS" \
             "$MSI" \
-            "src-tauri/target/release/bundle/nsis/Aletheia_x64-setup.exe" \
+            "$BUNDLE_ROOT/nsis/Aletheia_x64-setup.exe" \
             --clobber
 
       - name: Upload Linux artifacts
@@ -180,23 +187,32 @@ jobs:
         run: |
           set -e
           TAG="${{ github.ref_name }}"
-          # Tauri 2 emits both "Aletheia_*" (capital, productName) and
-          # "aletheia_*" (lowercase, cargo package name) for .deb and
-          # .AppImage. They're identical files; pick the capital-A
-          # variant since it matches the Windows naming.
-          APPIMAGE=$(ls src-tauri/target/release/bundle/appimage/Aletheia_*.AppImage 2>/dev/null | head -1)
-          DEB=$(ls src-tauri/target/release/bundle/deb/Aletheia_*.deb 2>/dev/null | head -1)
+          BUNDLE_ROOT="src-tauri/target/release/bundle"
+          echo "::group::Bundle directory contents"
+          find "$BUNDLE_ROOT" -type f 2>/dev/null | sort
+          echo "::endgroup::"
+
+          # `find -print -quit` returns the first match without invoking
+          # a pipe, so it survives `set -o pipefail` even when no file
+          # matches (vs `ls *.deb | head -1` which dies on no match).
+          # Case-insensitive (-iname) so we don't care whether Tauri
+          # emits Aletheia_*.deb (productName) or aletheia_*.deb (cargo
+          # name) — both are identical artifacts.
+          APPIMAGE=$(find "$BUNDLE_ROOT/appimage" -maxdepth 1 -type f -iname 'aletheia_*.AppImage' -print -quit 2>/dev/null || true)
+          DEB=$(find "$BUNDLE_ROOT/deb" -maxdepth 1 -type f -iname 'aletheia_*.deb' -print -quit 2>/dev/null || true)
+
           if [ -z "$APPIMAGE" ] || [ -z "$DEB" ]; then
-            echo "::error::Expected Linux installers missing; bundle dir contents:"
-            ls -la src-tauri/target/release/bundle/ || true
-            ls -la src-tauri/target/release/bundle/deb/ src-tauri/target/release/bundle/appimage/ 2>/dev/null || true
+            echo "::error::Expected Linux installers missing (APPIMAGE='$APPIMAGE' DEB='$DEB')"
             exit 1
           fi
-          cp "$APPIMAGE" "src-tauri/target/release/bundle/appimage/Aletheia_x64.AppImage"
-          cp "$DEB" "src-tauri/target/release/bundle/deb/Aletheia_amd64.deb"
+          echo "Found APPIMAGE=$APPIMAGE"
+          echo "Found DEB=$DEB"
+
+          cp "$APPIMAGE" "$BUNDLE_ROOT/appimage/Aletheia_x64.AppImage"
+          cp "$DEB" "$BUNDLE_ROOT/deb/Aletheia_amd64.deb"
           gh release upload "$TAG" \
             "$APPIMAGE" \
             "$DEB" \
-            "src-tauri/target/release/bundle/appimage/Aletheia_x64.AppImage" \
-            "src-tauri/target/release/bundle/deb/Aletheia_amd64.deb" \
+            "$BUNDLE_ROOT/appimage/Aletheia_x64.AppImage" \
+            "$BUNDLE_ROOT/deb/Aletheia_amd64.deb" \
             --clobber
