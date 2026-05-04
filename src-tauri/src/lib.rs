@@ -47,19 +47,92 @@ fn legacy_logos_data_dir() -> Option<PathBuf> {
     ProjectDirs::from("com", "logos", "Logos").map(|p| p.data_dir().to_path_buf())
 }
 
+/// Returns `true` when the Aletheia data dir at `new_dir` looks like a
+/// failed/aborted first launch — the directory exists but holds no
+/// user-generated state. Used to detect the 0.1.7/0.1.8 Linux scenario
+/// where the seed silently failed, leaving an empty schema'd DB behind
+/// and blocking the legacy-dir migration on later launches.
+///
+/// "Pristine" = no `aletheia.db` at all, OR an `aletheia.db` whose
+/// `books`, `notes`, and `bookmarks` tables are all empty. Any non-zero
+/// count on the user-data tables aborts the salvage path so we never
+/// clobber a real install.
+fn new_dir_is_pristine(new_dir: &PathBuf) -> bool {
+    let db_path = new_dir.join("aletheia.db");
+    if !db_path.exists() {
+        return true;
+    }
+    let conn = match rusqlite::Connection::open_with_flags(
+        &db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    ) {
+        Ok(c) => c,
+        Err(_) => return true, // unreadable → treat as pristine
+    };
+    let count = |sql: &str| -> i64 {
+        conn.query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap_or(0)
+    };
+    count("SELECT COUNT(*) FROM books") == 0
+        && count("SELECT COUNT(*) FROM notes") == 0
+        && count("SELECT COUNT(*) FROM bookmarks") == 0
+}
+
+/// Returns `true` if the legacy `Logos` data dir holds a usable DB —
+/// `logos.db` with at least one book row. Used as the salvage trigger:
+/// no point migrating a legacy dir that's itself empty.
+fn legacy_dir_has_real_data(legacy_dir: &PathBuf) -> bool {
+    let db_path = legacy_dir.join("logos.db");
+    if !db_path.is_file() {
+        return false;
+    }
+    let conn = match rusqlite::Connection::open_with_flags(
+        &db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    ) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    conn.query_row("SELECT COUNT(*) FROM books", [], |r| r.get::<_, i64>(0))
+        .map(|n: i64| n > 0)
+        .unwrap_or(false)
+}
+
 /// One-time migration: if the old `~/AppData/.../logos/Logos/data` tree
 /// exists but the Aletheia tree does not, move user data over so existing
 /// installs don't lose their notes/bookmarks/preferences across the
 /// rename. The bundled `logos.db` is renamed to `aletheia.db` as part of
 /// the move; FTS, schema, and row data are unchanged.
+///
+/// Salvage path: 0.1.7/0.1.8 on Linux created an empty Aletheia data
+/// dir on first launch (the seed silently failed), which permanently
+/// blocked this migration on later launches. If the new dir exists but
+/// is pristine (no books/notes/bookmarks) AND the legacy dir holds real
+/// data, we delete the empty new dir and run the migration anyway.
 fn migrate_legacy_data_dir(new_dir: &PathBuf) {
-    if new_dir.exists() {
-        return;
-    }
     let Some(old) = legacy_logos_data_dir() else { return };
     if !old.exists() {
         return;
     }
+    if new_dir.exists() {
+        // The common case: real install, leave it alone. Only
+        // override when the new dir is provably empty of user data
+        // AND the legacy dir is provably full of user data.
+        if !new_dir_is_pristine(new_dir) {
+            return;
+        }
+        if !legacy_dir_has_real_data(&old) {
+            return;
+        }
+        info!(
+            "Salvage migration: removing empty {:?} so legacy data at {:?} can be moved in",
+            new_dir, old
+        );
+        if let Err(e) = std::fs::remove_dir_all(new_dir) {
+            error!("Failed to remove pristine new dir {:?}: {}", new_dir, e);
+            return;
+        }
+    }
+
     info!("Migrating user data {:?} -> {:?}", old, new_dir);
     if let Some(parent) = new_dir.parent() {
         let _ = std::fs::create_dir_all(parent);

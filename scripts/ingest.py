@@ -179,7 +179,7 @@ def get_default_db_path() -> Path:
 
 def fetch_url(url: str, timeout: int = 30) -> bytes | None:
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "LogosBibleApp/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "Aletheia/1.0 (+https://github.com/jpatton72/Aletheia)"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.read()
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
@@ -669,7 +669,7 @@ def _fetch_sefaria_chapter(book: str, chapter: int) -> list[tuple[str, list[tupl
     """
     try:
         url = f"https://www.sefaria.org/api/texts/{book}.{chapter}"
-        req = urllib.request.Request(url, headers={"User-Agent": "LogosBibleApp/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "Aletheia/1.0 (+https://github.com/jpatton72/Aletheia)"})
         with urllib.request.urlopen(req, timeout=20) as r:
             data = json.loads(r.read())
             he = data.get('he') or data.get('text')

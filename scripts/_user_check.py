@@ -2,7 +2,7 @@
 
 Running ingest scripts under `sudo` (or as root) places the database under
 `/root/.local/share/aletheia/...` instead of the user's home directory, and
-populates `node_modules/` and `target/` with root-owned files. The Logos
+populates `node_modules/` and `target/` with root-owned files. The Aletheia
 app then runs as the regular user, can't see the populated DB, and the
 project tree is half-uninstallable. This is the single most common
 installation footgun, so we refuse to run as root by default.
@@ -63,7 +63,7 @@ def _abort(script_name: str | None) -> NoReturn:
         "\n"
         "Running as root creates the database under /root/.local/share/aletheia/\n"
         "instead of your home directory, leaves root-owned files in node_modules/\n"
-        "and src-tauri/target/, and the Logos app won't be able to read the DB\n"
+        "and src-tauri/target/, and the Aletheia app won't be able to read the DB\n"
         "when it launches as your regular user.\n"
         f"{hint}"
         "\n"

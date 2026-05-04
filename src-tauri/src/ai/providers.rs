@@ -212,9 +212,13 @@ impl Provider for AnthropicProvider {
         // Anthropic's Messages API requires max_tokens. 4096 fits every
         // current Claude model's output ceiling and is plenty for the
         // study/lookup chats this app issues. Power users with extended
-        // workflows can override via LOGOS_AI_MAX_TOKENS — invalid values
-        // fall back to the default rather than failing the request.
-        let max_tokens: u32 = std::env::var("LOGOS_AI_MAX_TOKENS")
+        // workflows can override via ALETHEIA_AI_MAX_TOKENS; invalid
+        // values fall back to the default rather than failing the
+        // request. The legacy LOGOS_AI_MAX_TOKENS name from the pre-
+        // rename build is still honored as a fallback so anyone who
+        // had it set in their environment doesn't lose the override.
+        let max_tokens: u32 = std::env::var("ALETHEIA_AI_MAX_TOKENS")
+            .or_else(|_| std::env::var("LOGOS_AI_MAX_TOKENS"))
             .ok()
             .and_then(|s| s.parse().ok())
             .filter(|n: &u32| *n > 0)

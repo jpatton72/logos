@@ -42,7 +42,7 @@ GREEK_URL  = "https://raw.githubusercontent.com/openscriptures/strongs/master/gr
 
 
 def fetch(url: str, timeout: int = 60) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": "LogosBibleApp/1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "Aletheia/1.0 (+https://github.com/jpatton72/Aletheia)"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read().decode("utf-8", errors="replace")
 

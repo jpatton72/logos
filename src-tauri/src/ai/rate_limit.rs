@@ -8,8 +8,10 @@
 //! The defaults (60 requests / 60 seconds) are intentionally generous —
 //! the goal is "stop a runaway frontend from racking up $100 in 30 seconds",
 //! not "keep the user from doing their job". Configurable via env vars
-//! `LOGOS_AI_RATE_LIMIT` (count) and `LOGOS_AI_RATE_WINDOW_SECS` for users
-//! who hit the ceiling on legitimate use.
+//! `ALETHEIA_AI_RATE_LIMIT` (count) and `ALETHEIA_AI_RATE_WINDOW_SECS` for
+//! users who hit the ceiling on legitimate use. The legacy
+//! `LOGOS_AI_RATE_LIMIT` / `LOGOS_AI_RATE_WINDOW_SECS` names from the
+//! pre-rename build are still honored as fallbacks.
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -39,13 +41,18 @@ impl RateLimiter {
         }
     }
 
-    /// Read environment overrides, falling back to (60, 60s).
+    /// Read environment overrides, falling back to (60, 60s). Prefers
+    /// the new `ALETHEIA_*` names; falls through to the pre-rename
+    /// `LOGOS_*` ones so existing power-user shell configs keep
+    /// working without an env-var update.
     pub fn from_env() -> Self {
-        let max_requests = std::env::var("LOGOS_AI_RATE_LIMIT")
+        let max_requests = std::env::var("ALETHEIA_AI_RATE_LIMIT")
+            .or_else(|_| std::env::var("LOGOS_AI_RATE_LIMIT"))
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(60);
-        let window_secs = std::env::var("LOGOS_AI_RATE_WINDOW_SECS")
+        let window_secs = std::env::var("ALETHEIA_AI_RATE_WINDOW_SECS")
+            .or_else(|_| std::env::var("LOGOS_AI_RATE_WINDOW_SECS"))
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(60);

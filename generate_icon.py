@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate the Logos Bible app icon set using ImageMagick (no Pillow required).
+Generate the Aletheia icon set using ImageMagick (no Pillow required).
 Design: Deep navy background with gold cross, open book, and Greek lambda (ΛΟΓΟΣ).
 """
 
@@ -114,7 +114,7 @@ def make_icon_svg(size: int) -> str:
 
 
 def main():
-    print("Generating Logos Bible icon set with ImageMagick...")
+    print("Generating Aletheia icon set with ImageMagick...")
 
     # Create base 1024 icon as SVG
     svg_1024 = make_icon_svg(1024)
