@@ -99,6 +99,96 @@ fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Locate the bundled `aletheia.db` resource shipped inside the
+/// installer. Tauri puts resources in different places per platform,
+/// so we try each known layout in order and return the first hit.
+///
+/// - **Windows**: same directory as the .exe (`C:\Program Files\Aletheia\aletheia.db`).
+/// - **Linux .deb / AppImage**: `/usr/lib/<binary-name>/aletheia.db`
+///   relative to a `/usr/bin/<binary-name>` executable. The AppImage's
+///   tmp mount mirrors that layout.
+/// - **macOS**: `Aletheia.app/Contents/Resources/aletheia.db`
+///   (placeholder for when we add macOS bundling).
+///
+/// Logs every candidate attempted so packaging-related failures show
+/// up as actionable diagnostics instead of a silent "no books" UI.
+/// Returns `true` if the DB at `path` is unusable (no `books` table, or
+/// the table exists but has zero rows). Used to detect installs from
+/// 0.1.7/0.1.8 on Linux where the seed silently failed and left behind
+/// an empty schema. Any I/O or query error is treated as "empty" so
+/// the seed runs and overwrites the bad file.
+fn db_is_empty(path: &PathBuf) -> bool {
+    let conn = match rusqlite::Connection::open_with_flags(
+        path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    ) {
+        Ok(c) => c,
+        Err(e) => {
+            info!("Existing DB unreadable ({}); treating as empty", e);
+            return true;
+        }
+    };
+    match conn.query_row("SELECT COUNT(*) FROM books", [], |r| r.get::<_, i64>(0)) {
+        Ok(n) => {
+            if n == 0 {
+                info!("Existing DB has 0 books; will re-seed from bundle");
+            }
+            n == 0
+        }
+        Err(e) => {
+            info!("Existing DB has no books table ({}); treating as empty", e);
+            true
+        }
+    }
+}
+
+fn find_bundled_db() -> Option<PathBuf> {
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => {
+            error!("current_exe() failed: {}", e);
+            return None;
+        }
+    };
+    let exe_parent = exe.parent()?;
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    // Same dir as the binary — Windows installer layout, also dev
+    // builds running `cargo tauri dev` from a target/ tree where the
+    // copied bundle sits next to the exe.
+    candidates.push(exe_parent.join("aletheia.db"));
+
+    // Linux .deb / AppImage — Tauri places resources at
+    // ../lib/<binary-name>/. The binary name comes from Cargo's
+    // `package.name`, which is also the file_stem of current_exe.
+    if let Some(grand) = exe_parent.parent() {
+        if let Some(name) = exe.file_stem().and_then(|s| s.to_str()) {
+            candidates.push(grand.join("lib").join(name).join("aletheia.db"));
+            // Some distros reroute /usr/lib → /usr/share for arch-
+            // independent data; cheap to also try `share/`.
+            candidates.push(grand.join("share").join(name).join("aletheia.db"));
+        }
+    }
+
+    // macOS .app — Resources sibling of MacOS/.
+    if let Some(grand) = exe_parent.parent() {
+        candidates.push(grand.join("Resources").join("aletheia.db"));
+    }
+
+    for candidate in &candidates {
+        if candidate.is_file() {
+            info!("Found bundled DB at {:?}", candidate);
+            return Some(candidate.clone());
+        }
+    }
+    error!(
+        "Bundled aletheia.db not found. Searched: {:?}",
+        candidates
+    );
+    None
+}
+
 /// Top up data tables that were added in later schema versions and may
 /// have been left empty on upgrade installs. The bundled-DB seed only
 /// fires when the user has no database yet; users upgrading from older
@@ -111,13 +201,10 @@ fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> std::io::Result<()> {
 /// the user table is empty. Best-effort: any error is logged and
 /// swallowed so a missing or corrupt bundle can't block startup.
 fn backfill_data_from_bundle(db: &Database) {
-    let bundle = match std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|p| p.join("aletheia.db")))
-    {
-        Some(p) if p.exists() => p,
-        _ => {
-            info!("No bundled DB next to the binary; skipping data backfill");
+    let bundle = match find_bundled_db() {
+        Some(p) => p,
+        None => {
+            info!("No bundled DB located; skipping data backfill");
             return;
         }
     };
@@ -226,21 +313,27 @@ fn init_app_state() -> Result<AppState, String> {
         e.to_string()
     })?;
 
-    // Seed user DB from bundled copy on first run if DB is missing or empty
+    // Seed user DB from bundled copy on first run if DB is missing or
+    // empty. We also re-seed when the file exists but has zero books —
+    // 0.1.7/0.1.8 on Linux failed to seed (the resource search only
+    // covered Windows layout), but Database::new() still ran and left
+    // an empty schema behind. Without this re-seed those users would
+    // need to manually delete the file to recover.
     let db_path = app_data_dir.join("aletheia.db");
     let needs_seed = !db_path.exists()
-        || db_path.metadata().map(|m| m.len() == 0).unwrap_or(false);
+        || db_path.metadata().map(|m| m.len() == 0).unwrap_or(false)
+        || db_is_empty(&db_path);
     if needs_seed {
-        if let Ok(exe) = std::env::current_exe() {
-            let bundle_root = exe.parent().unwrap_or(&exe);
-            let bundled = bundle_root.join("aletheia.db");
-            if bundled.exists() {
-                match std::fs::copy(&bundled, &db_path) {
-                    Ok(_) => info!("Seeded bundled database to {:?}", db_path),
-                    Err(e) => info!("No bundled DB available or copy failed: {}", e),
-                }
-            } else {
-                info!("Bundled aletheia.db not found at {:?}", bundled);
+        match find_bundled_db() {
+            Some(bundled) => match std::fs::copy(&bundled, &db_path) {
+                Ok(_) => info!("Seeded bundled database to {:?}", db_path),
+                Err(e) => error!("Bundled DB copy failed: {}", e),
+            },
+            None => {
+                error!(
+                    "No bundled aletheia.db found — reader will show 'Loading books...' indefinitely. \
+                     Check that the installer placed the resource correctly."
+                );
             }
         }
     }
