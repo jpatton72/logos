@@ -13,8 +13,11 @@ import { AiPanel, type WordContext } from './components/AiPanel';
 import { StrongsSidebar } from './components/StrongsSidebar';
 import { NotesSidebar } from './components/NotesSidebar';
 import type { BookmarkWithVerse } from './lib/tauri';
+import { audioStatus } from './lib/tauri';
 import { useFocusTrap } from './lib/useFocusTrap';
 import { stopAudio } from './lib/audioPlayback';
+import { SelectionActionBar } from './components/SelectionActionBar';
+import { AUDIO_STATUS_EVENT } from './components/VerseDisplay';
 
 const ORIGINAL_LANG_CODES = new Set(['wlc', 'sblgnt', 'oshb']);
 
@@ -36,6 +39,25 @@ function AppInner() {
   const [aiVerses, setAiVerses] = useState<{ book_abbreviation: string; chapter: number; verse_num: number; text: string }[]>([]);
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
   const [strongsClosed, setStrongsClosed] = useState(false);
+  // Whether the optional Piper voice is installed. Drives the
+  // SelectionActionBar's visibility (no point offering a play button
+  // when nothing can synthesize). Re-probes on AUDIO_STATUS_EVENT so
+  // installing/uninstalling from Settings updates immediately.
+  const [audioReady, setAudioReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const probe = () => {
+      audioStatus()
+        .then((s) => { if (!cancelled) setAudioReady(s.installed); })
+        .catch(() => { if (!cancelled) setAudioReady(false); });
+    };
+    probe();
+    window.addEventListener(AUDIO_STATUS_EVENT, probe);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(AUDIO_STATUS_EVENT, probe);
+    };
+  }, []);
 
   // Auto-reopen the Strong's sidebar whenever the active translations change
   // — a user toggling to/from an original language should see the panel again.
@@ -354,6 +376,16 @@ function AppInner() {
         {showKeyboardHelp && (
           <KeyboardHelpModal darkMode={darkMode} onClose={() => setShowKeyboardHelp(false)} />
         )}
+
+      {/* Floating audio action bar — surfaces the Play-selected button
+          when verses are selected, and the queue Stop button while a
+          multi-verse playback is in flight. Hidden whenever neither
+          condition holds. */}
+      <SelectionActionBar
+        selectedWithText={aiVerses}
+        audioReady={audioReady}
+        darkMode={darkMode}
+      />
     </div>
   );
 }
@@ -399,8 +431,15 @@ function KeyboardHelpModal({ darkMode, onClose }: { darkMode: boolean; onClose: 
                   <kbd style={{ padding: '0.125rem 0.5rem', borderRadius: '4px', backgroundColor: darkMode ? '#252519' : '#f5f5f4', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>n</kbd>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>
-                  <span>Close modal/panel</span>
+                  <span>Close modal/panel · stop audio</span>
                   <kbd style={{ padding: '0.125rem 0.5rem', borderRadius: '4px', backgroundColor: darkMode ? '#252519' : '#f5f5f4', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>Esc</kbd>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>
+                  <span>Listen continuously from a verse</span>
+                  <span style={{ display: 'flex', gap: '0.25rem' }}>
+                    <kbd style={{ padding: '0.125rem 0.5rem', borderRadius: '4px', backgroundColor: darkMode ? '#252519' : '#f5f5f4', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>Shift</kbd>
+                    <kbd style={{ padding: '0.125rem 0.5rem', borderRadius: '4px', backgroundColor: darkMode ? '#252519' : '#f5f5f4', border: `1px solid ${darkMode ? '#3c3a36' : '#e7e5e4'}` }}>Click 🔊</kbd>
+                  </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0' }}>
                   <span>Show this help</span>

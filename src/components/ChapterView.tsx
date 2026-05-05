@@ -224,6 +224,7 @@ export function ChapterView({
               group={group}
               originalVerses={originalVerses.filter(v => v.verse_num === group.verse_num)}
               englishAlignment={englishAlignment}
+              chapterVerses={verses}
             />
           ))}
         </div>

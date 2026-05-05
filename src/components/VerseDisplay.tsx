@@ -2,10 +2,23 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '../store/useAppStore';
 import { createBookmark, deleteBookmark, getKetivQere, getStrongsGreek, getStrongsHebrew } from '../api';
-import { audioStatus, audioSynthesize } from '../lib/tauri';
+import { audioStatus } from '../lib/tauri';
 import type { VerseGroup, WordMapping, KetivQere, VerseWithWords, StrongsGreek, StrongsHebrew, EnglishToken } from '../lib/tauri';
 import { parseGreekMorphology, parseHebrewMorphology } from '../lib/morphology';
-import { playWav, stopAudio, subscribePlayback, currentPlaybackToken } from '../lib/audioPlayback';
+import { playOne, playQueue, stopAudio, subscribePlayback, type PlaybackState, type PlayItem } from '../lib/audioPlayback';
+
+// Translations whose text is in the original Hebrew/Greek. Listen
+// buttons are hidden for these because Piper's English voice would
+// just produce garbage — a future feature could ship a different
+// voice and re-enable them.
+const ORIGINAL_LANG_ABBRS = new Set(['wlc', 'sblgnt', 'oshb']);
+
+/** Build a stable playback key for a given verse + translation. Used
+ *  by both single-verse and continuous-queue playback so a Listen
+ *  button can simply ask "is this my key playing?". */
+function playbackKey(book: string, chapter: number, verseNum: number, translationAbbr: string): string {
+  return `${book.toLowerCase()}-${chapter}-${verseNum}-${translationAbbr.toLowerCase()}`;
+}
 
 // Module-level cache of the audio install state. The Listen button is
 // hidden until Piper is installed; probing once per app session is
@@ -426,9 +439,14 @@ interface VerseDisplayProps {
    *  so the hover-to-highlight feature can target words. Verses
    *  without alignment fall back to the plain-text rendering. */
   englishAlignment?: Record<number, EnglishToken[]>;
+  /** All verse groups in the chapter, in reading order. Used to build
+   *  a continuation queue when the user Shift-clicks a Listen button
+   *  ("play this verse and every verse after it"). The parent passes
+   *  this so VerseDisplay doesn't have to fetch the chapter itself. */
+  chapterVerses?: VerseGroup[];
 }
 
-export function VerseDisplay({ group, originalVerses, englishAlignment }: VerseDisplayProps) {
+export function VerseDisplay({ group, originalVerses, englishAlignment, chapterVerses }: VerseDisplayProps) {
   const {
     darkMode,
     fontSize,
@@ -444,12 +462,10 @@ export function VerseDisplay({ group, originalVerses, englishAlignment }: VerseD
   const [bmHover, setBmHover] = useState(false);
   const [ketivQere, setKetivQere] = useState<Record<number, KetivQere[]>>({});
   const [audioReady, setAudioReady] = useState<boolean>(cachedInstalled ?? false);
-  // Per-verse playback state. `playingToken` is the symbol returned by
-  // playWav for *this* verse's clip; comparing it against
-  // currentPlaybackToken() answers "am I still the active one?". `synth`
-  // is true while the Rust side is generating WAV bytes.
-  const [playingToken, setPlayingToken] = useState<symbol | null>(null);
-  const [synth, setSynth] = useState(false);
+  // Single subscription to the global playback state. Each Listen
+  // button below derives its own active/synthesizing/playing state by
+  // comparing this state's `key` against its own playbackKey().
+  const [playback, setPlayback] = useState<PlaybackState>({ key: null, phase: 'idle', progress: null });
 
   useEffect(() => {
     isAudioInstalled().then(setAudioReady);
@@ -458,13 +474,7 @@ export function VerseDisplay({ group, originalVerses, englishAlignment }: VerseD
     return () => window.removeEventListener(AUDIO_STATUS_EVENT, onChange);
   }, []);
 
-  // Reflect global stop / another verse starting playback.
-  useEffect(() => {
-    const unsub = subscribePlayback((tok) => {
-      if (tok !== playingToken) setPlayingToken(null);
-    });
-    return unsub;
-  }, [playingToken]);
+  useEffect(() => subscribePlayback(setPlayback), []);
 
   const verseRef = {
     book: currentBook.toLowerCase(),
@@ -506,23 +516,53 @@ export function VerseDisplay({ group, originalVerses, englishAlignment }: VerseD
     })();
   }, [group.verse_num, originalVerses]);
 
-  const handleListen = async (verseText: string) => {
-    if (synth) return;
-    // Already playing this verse → toggle off.
-    if (playingToken && currentPlaybackToken() === playingToken) {
+  const handleListen = (verse: VerseGroup['verses'][number], continuous: boolean) => {
+    const myKey = playbackKey(
+      verse.book_abbreviation || currentBook,
+      group.chapter,
+      verse.verse_num,
+      verse.translation_abbreviation || '',
+    );
+    // Already the active item (synthesizing or playing) → toggle off.
+    if (playback.key === myKey && playback.phase !== 'idle') {
       stopAudio();
       return;
     }
-    setSynth(true);
-    try {
-      const bytes = await audioSynthesize(verseText);
-      const tok = playWav(bytes);
-      setPlayingToken(tok);
-    } catch (e) {
-      console.error('TTS failed:', e);
-    } finally {
-      setSynth(false);
+
+    if (!continuous || !chapterVerses || chapterVerses.length === 0) {
+      playOne({ text: verse.text, key: myKey });
+      return;
     }
+
+    // Continuous: queue this verse + every later verse in the chapter
+    // that has the same translation. Skip empty texts (apocrypha
+    // gaps) and original-language entries — Piper's English voice
+    // would just produce garbage.
+    const targetAbbr = (verse.translation_abbreviation || '').toLowerCase();
+    const items: PlayItem[] = [];
+    for (const g of chapterVerses) {
+      if (g.verse_num < verse.verse_num) continue;
+      const v = g.verses.find(
+        (x) => (x.translation_abbreviation || '').toLowerCase() === targetAbbr,
+      );
+      if (!v) continue;
+      if (!v.text || !v.text.trim()) continue;
+      if (ORIGINAL_LANG_ABBRS.has(targetAbbr)) continue;
+      items.push({
+        text: v.text,
+        key: playbackKey(
+          v.book_abbreviation || currentBook,
+          group.chapter,
+          v.verse_num,
+          v.translation_abbreviation || '',
+        ),
+      });
+    }
+    if (items.length === 0) {
+      // Should never happen (we just clicked a verse) but bail safely.
+      return;
+    }
+    void playQueue(items);
   };
 
   const handleBookmark = async () => {
@@ -625,60 +665,69 @@ export function VerseDisplay({ group, originalVerses, englishAlignment }: VerseD
               })()}
             </p>
             {/* Listen button — only after the optional Piper voice is
-                installed. Same on-hover visibility as the bookmark
-                button so the verse stays uncluttered when idle. */}
-            {audioReady && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleListen(verse.text);
-                }}
-                disabled={synth}
-                title={
-                  synth
-                    ? 'Generating audio…'
-                    : playingToken && currentPlaybackToken() === playingToken
-                    ? 'Stop playback'
-                    : 'Listen to this verse'
-                }
-                style={{
-                  opacity: bmHover || isActive || playingToken !== null ? 1 : 0,
-                  background: 'none',
-                  border: 'none',
-                  cursor: synth ? 'wait' : 'pointer',
-                  padding: '2px',
-                  borderRadius: '4px',
-                  color:
-                    playingToken && currentPlaybackToken() === playingToken
-                      ? '#d97706'
-                      : darkMode
-                      ? '#78716c'
-                      : '#92400e',
-                  transition: 'opacity 0.15s',
-                  flexShrink: 0,
-                  marginTop: '2px',
-                }}
-              >
-                {playingToken && currentPlaybackToken() === playingToken ? (
-                  // Stop (filled square)
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                    <rect x="6" y="6" width="12" height="12" rx="1" />
-                  </svg>
-                ) : synth ? (
-                  // Hourglass-ish dot while synthesis is in flight
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="3" fill="currentColor" />
-                  </svg>
-                ) : (
-                  // Speaker icon
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                  </svg>
-                )}
-              </button>
-            )}
+                installed AND only for English translations (Piper's
+                English voice can't read Hebrew/Greek). Hidden on idle
+                so the verse stays uncluttered. Shift+click plays this
+                verse plus every later verse in the chapter. */}
+            {audioReady && !ORIGINAL_LANG_ABBRS.has((verse.translation_abbreviation ?? '').toLowerCase()) && (() => {
+              const myKey = playbackKey(
+                verse.book_abbreviation || currentBook,
+                group.chapter,
+                verse.verse_num,
+                verse.translation_abbreviation || '',
+              );
+              const isMine = playback.key === myKey;
+              const isSynth = isMine && playback.phase === 'synthesizing';
+              const isPlaying = isMine && playback.phase === 'playing';
+              const isAnyPlaying = playback.key !== null;
+              return (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleListen(verse, e.shiftKey);
+                  }}
+                  disabled={isSynth && !isMine}
+                  title={
+                    isPlaying
+                      ? 'Stop playback (Esc also works)'
+                      : isSynth
+                      ? 'Generating audio…'
+                      : 'Listen to this verse — Shift+click to play continuously through the chapter'
+                  }
+                  style={{
+                    opacity: bmHover || isActive || isAnyPlaying ? 1 : 0,
+                    background: 'none',
+                    border: 'none',
+                    cursor: isSynth ? 'wait' : 'pointer',
+                    padding: '2px',
+                    borderRadius: '4px',
+                    color: isMine ? '#d97706' : darkMode ? '#78716c' : '#92400e',
+                    transition: 'opacity 0.15s',
+                    flexShrink: 0,
+                    marginTop: '2px',
+                  }}
+                >
+                  {isPlaying ? (
+                    // Stop (filled square)
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                      <rect x="6" y="6" width="12" height="12" rx="1" />
+                    </svg>
+                  ) : isSynth ? (
+                    // Pulsing dot while synthesis is in flight
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="3" fill="currentColor" />
+                    </svg>
+                  ) : (
+                    // Speaker icon
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                    </svg>
+                  )}
+                </button>
+              );
+            })()}
             {/* Bookmark button — appears on hover */}
             <button
               onClick={(e) => {
