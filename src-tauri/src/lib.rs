@@ -288,8 +288,14 @@ fn backfill_data_from_bundle(db: &Database) {
     };
     let needs_alignment = count("SELECT COUNT(*) FROM english_word_alignment") == 0;
     let needs_strongs_index = count("SELECT COUNT(*) FROM english_strongs_index") == 0;
+    // 0.1.14 added 1 Enoch / Jubilees / 2 Enoch as pseudepigrapha. If
+    // an existing user's DB has no rows in books with genre =
+    // 'Pseudepigrapha', we top those up from the bundle along with
+    // the new "Pseudepigrapha (Public Domain)" translation row and
+    // their verses.
+    let needs_pseudepigrapha = count("SELECT COUNT(*) FROM books WHERE genre = 'Pseudepigrapha'") == 0;
 
-    if !needs_alignment && !needs_strongs_index {
+    if !needs_alignment && !needs_strongs_index && !needs_pseudepigrapha {
         return;
     }
 
@@ -344,6 +350,79 @@ fn backfill_data_from_bundle(db: &Database) {
         ) {
             Ok(n) => info!("Backfilled {} english_strongs_index rows from bundle", n),
             Err(e) => error!("backfill english_strongs_index failed: {}", e),
+        }
+    }
+
+    if needs_pseudepigrapha {
+        // 1) Add the PSEUDO translation row if missing. INSERT OR IGNORE
+        //    guards against the unlikely case the user already has a row
+        //    under that abbreviation.
+        if let Err(e) = conn.execute(
+            "INSERT OR IGNORE INTO translations (name, abbreviation, language, source_url, notes)
+             SELECT name, abbreviation, language, source_url, notes
+             FROM bundle.translations WHERE abbreviation = 'PSEUDO' COLLATE NOCASE",
+            [],
+        ) {
+            error!("backfill PSEUDO translation failed: {}", e);
+        }
+
+        // 2) Add the three pseudepigrapha books. Use bundle's
+        //    order_index as-is; not unique, just affects sort order.
+        match conn.execute(
+            "INSERT INTO books (abbreviation, full_name, testament, genre, order_index)
+             SELECT bb.abbreviation, bb.full_name, bb.testament, bb.genre, bb.order_index
+             FROM bundle.books bb
+             WHERE bb.genre = 'Pseudepigrapha'
+               AND NOT EXISTS (
+                  SELECT 1 FROM main.books mb
+                  WHERE mb.abbreviation = bb.abbreviation COLLATE NOCASE
+               )",
+            [],
+        ) {
+            Ok(n) => info!("Backfilled {} pseudepigrapha book rows from bundle", n),
+            Err(e) => error!("backfill pseudepigrapha books failed: {}", e),
+        }
+
+        // 3) Copy the verses. Join on bundle book/translation
+        //    abbreviations -> user IDs so verse_ids don't have to line up.
+        match conn.execute(
+            "INSERT INTO verses (book_id, chapter, verse_num, translation_id, text)
+             SELECT user_b.id, bv.chapter, bv.verse_num, user_t.id, bv.text
+             FROM bundle.verses bv
+             JOIN bundle.books bb ON bb.id = bv.book_id
+             JOIN bundle.translations bt ON bt.id = bv.translation_id
+             JOIN main.books user_b ON user_b.abbreviation = bb.abbreviation COLLATE NOCASE
+             JOIN main.translations user_t ON user_t.abbreviation = bt.abbreviation COLLATE NOCASE
+             WHERE bb.genre = 'Pseudepigrapha'
+               AND NOT EXISTS (
+                  SELECT 1 FROM main.verses uv
+                  WHERE uv.book_id = user_b.id
+                    AND uv.chapter = bv.chapter
+                    AND uv.verse_num = bv.verse_num
+                    AND uv.translation_id = user_t.id
+               )",
+            [],
+        ) {
+            Ok(n) => info!("Backfilled {} pseudepigrapha verse rows from bundle", n),
+            Err(e) => error!("backfill pseudepigrapha verses failed: {}", e),
+        }
+
+        // 4) Re-populate verses_fts for the new rows so search picks
+        //    them up. The FTS index is a separate table — verses
+        //    inserted in step 3 don't propagate automatically.
+        match conn.execute(
+            "INSERT INTO verses_fts (verse_id, book_id, chapter, verse_num, text, translation_id)
+             SELECT v.id, v.book_id, v.chapter, v.verse_num, v.text, v.translation_id
+             FROM main.verses v
+             JOIN main.books b ON b.id = v.book_id
+             WHERE b.genre = 'Pseudepigrapha'
+               AND NOT EXISTS (
+                  SELECT 1 FROM main.verses_fts vfts WHERE vfts.verse_id = v.id
+               )",
+            [],
+        ) {
+            Ok(n) => info!("Backfilled {} pseudepigrapha verses_fts rows", n),
+            Err(e) => error!("backfill pseudepigrapha verses_fts failed: {}", e),
         }
     }
 

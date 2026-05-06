@@ -14,6 +14,9 @@ upstream license; consult the linked sources for full text.
 | **MorphGNT / SBLGNT morphology** | Greek NT word mappings (Strong's IDs, lemma, morphology) | [CC-BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) | © MorphGNT contributors, [github.com/morphgnt/sblgnt](https://github.com/morphgnt/sblgnt) |
 | **Strong's Greek + Hebrew lexicons** | Word definitions, transliterations, pronunciations | Public Domain (James Strong, 1890) | — |
 | **eBible.org KJV2006 USFM (`eng-kjv2006`)** | English-to-Strong's index for the Lexicon's English-lookup feature | Public Domain (KJV text + Strong's tagging both PD; UK Crown Letters Patent only apply inside the UK) | [eBible.org](https://ebible.org/find/details.php?id=eng-kjv2006), upstream Crosswire KJV2003 |
+| **1 Enoch** (Ethiopic Apocalypse of Enoch) | Pseudepigrapha section, "Public Domain Pseudepigrapha" translation | Public Domain (US, pre-1929) | Translated by R.H. Charles, *The Book of Enoch*, Oxford: Clarendon Press, 1917. Retrieved from [pseudepigrapha.com](https://www.pseudepigrapha.com/pseudepigrapha/enoch.htm). |
+| **Jubilees** | Pseudepigrapha section, "Public Domain Pseudepigrapha" translation | Public Domain (US, pre-1929) | Translated by R.H. Charles, *The Book of Jubilees*, Oxford: Clarendon Press, 1913. Retrieved from [pseudepigrapha.com](https://www.pseudepigrapha.com/jubilees/index.htm). |
+| **2 Enoch** (Slavonic Book of the Secrets of Enoch) | Pseudepigrapha section, "Public Domain Pseudepigrapha" translation | Public Domain (US, pre-1929) | Translated from the Slavonic by W.R. Morfill, in R.H. Charles ed., *The Book of the Secrets of Enoch*, Oxford: Clarendon Press, 1896. Retrieved from [pseudepigrapha.com](https://www.pseudepigrapha.com/pseudepigrapha/enochs2.htm). |
 
 ### Optionally-installed translations
 

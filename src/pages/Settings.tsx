@@ -452,6 +452,9 @@ export default function Settings() {
               Strong's Greek + Hebrew (Public Domain), eBible.org KJV2006 USFM with Strong's tags (Public Domain) for the Lexicon English-lookup index.
             </p>
             <p style={{ margin: '0 0 0.5rem' }}>
+              <strong>Pseudepigrapha:</strong> 1 Enoch (R.H. Charles, 1917) and Jubilees (R.H. Charles, 1913), both Public Domain in the US. 2 Enoch / Slavonic Enoch translated from the Slavonic by W.R. Morfill in R.H. Charles ed., 1896, also Public Domain.
+            </p>
+            <p style={{ margin: '0 0 0.5rem' }}>
               <strong>Fonts:</strong> Inter, Lora, Noto Serif, and Noto Serif Hebrew — all SIL Open Font License,
               vendored locally (the app makes no font CDN calls).
             </p>

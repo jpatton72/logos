@@ -16,11 +16,12 @@ Steps performed:
     2. Ingest Strong's Greek + Hebrew dictionaries (ingest_strongs.py).
     3. Ingest NKJV + ESV from Bible-json (auto-download).
     4. Ingest KJV apocrypha from Bible-json (auto-download).
-    5. Ingest MorphGNT Greek word_mappings (auto-download from morphgnt/sblgnt).
-    6. Ingest OSHB Hebrew word_mappings (auto-download from openscriptures/morphhb).
-    7. Resolve lemma -> Strong's IDs and populate terms_fts (ingest_word_mappings.py).
-    8. Build english_strongs_index from eBible KJV2006 USFM (ingest_kjv_strongs.py).
-    9. Copy the populated DB to src-tauri/aletheia.db.
+    5. Ingest pseudepigrapha (1 Enoch, Jubilees, 2 Enoch) from committed JSONs.
+    6. Ingest MorphGNT Greek word_mappings (auto-download from morphgnt/sblgnt).
+    7. Ingest OSHB Hebrew word_mappings (auto-download from openscriptures/morphhb).
+    8. Resolve lemma -> Strong's IDs and populate terms_fts (ingest_word_mappings.py).
+    9. Build english_strongs_index from eBible KJV2006 USFM (ingest_kjv_strongs.py).
+    10. Copy the populated DB to src-tauri/aletheia.db.
 
 Step 1 + 2 are skipped if the DB already has populated `verses` and Strong's
 tables (so reruns don't duplicate work).
@@ -153,7 +154,16 @@ def main() -> int:
         *root_args,
     )
 
-    # Step 5: MorphGNT Greek word_mappings
+    # Step 5: Pseudepigrapha (1 Enoch / Jubilees / 2 Enoch). Reads
+    # the JSONs committed under data/pseudepigrapha/, produced by
+    # scripts/scrape_pseudepigrapha.py — no network access needed.
+    run(
+        py, str(SCRIPTS / "ingest_pseudepigrapha.py"),
+        "--db-path", str(db_path),
+        *root_args,
+    )
+
+    # Step 6: MorphGNT Greek word_mappings
     run(py, str(SCRIPTS / "ingest_morphgnt.py"), "--db-path", str(db_path), "--wipe", *root_args)
 
     # Step 6: OSHB Hebrew word_mappings

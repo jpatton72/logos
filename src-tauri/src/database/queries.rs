@@ -465,6 +465,69 @@ pub fn get_chapter(db: &Database, book_abbreviation: &str, chapter: i32, transla
         });
     }
 
+    // Fallback: if the user's active translations have no rows for
+    // this book/chapter but verses exist under some other translation
+    // (e.g. 1 Enoch is only in PSEUDO; a user with just KJV active
+    // would otherwise see a blank chapter), return whatever's
+    // available so the chapter isn't a dead end. Each verse still
+    // carries its own translation_abbreviation, so the renderer can
+    // show users what they're actually reading.
+    if verse_groups.is_empty() {
+        let mut stmt = conn.prepare(
+            "SELECT v.id, v.book_id, b.abbreviation, v.chapter, v.verse_num,
+                    v.translation_id, v.text, t.abbreviation as trans_abbr
+             FROM verses v
+             JOIN books b ON v.book_id = b.id
+             JOIN translations t ON v.translation_id = t.id
+             WHERE b.abbreviation = ? COLLATE NOCASE
+               AND v.chapter = ?
+             ORDER BY v.verse_num, t.id",
+        )?;
+        let rows = stmt.query_map(params![book_abbreviation, chapter], |row| {
+            let trans_abbr: String = row.get(7)?;
+            Ok((
+                row.get::<_, i32>(3)?,
+                row.get::<_, i32>(4)?,
+                Verse {
+                    id: row.get(0)?,
+                    book_id: row.get(1)?,
+                    book_abbreviation: row.get(2)?,
+                    chapter: row.get(3)?,
+                    verse_num: row.get(4)?,
+                    translation_id: row.get(5)?,
+                    text: row.get(6)?,
+                    translation_abbreviation: Some(trans_abbr),
+                    ..Verse::default()
+                },
+            ))
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        let mut current_verse_num: Option<i32> = None;
+        let mut current_group: Vec<Verse> = Vec::new();
+        for (ch, vn, verse) in rows {
+            if current_verse_num != Some(vn) {
+                if !current_group.is_empty() {
+                    verse_groups.push(VerseGroup {
+                        chapter: ch,
+                        verse_num: current_verse_num.unwrap(),
+                        verses: current_group,
+                    });
+                }
+                current_verse_num = Some(vn);
+                current_group = vec![verse];
+            } else {
+                current_group.push(verse);
+            }
+        }
+        if !current_group.is_empty() {
+            verse_groups.push(VerseGroup {
+                chapter,
+                verse_num: current_verse_num.unwrap(),
+                verses: current_group,
+            });
+        }
+    }
+
     Ok(verse_groups)
 }
 
