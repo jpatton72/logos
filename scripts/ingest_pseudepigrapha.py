@@ -57,6 +57,12 @@ PSEUDEPIGRAPHA_BOOKS = [
     ("2enoch_morfill_1896.json", "2En", "2 Enoch", "Pseudepigrapha"),
 ]
 
+# Supplemental verses keyed by book abbreviation. Filled in only where
+# the scraped base JSON has no entry for that chapter+verse — see the
+# `_meta` field of supplements.json for context. Re-running the
+# scraper does NOT regenerate this file; manual edits stick.
+SUPPLEMENTS_FILENAME = "supplements.json"
+
 
 def default_db_path() -> Path:
     system = platform.system()
@@ -121,11 +127,53 @@ def upsert_books(conn: sqlite3.Connection) -> dict[str, int]:
     return out
 
 
+def load_supplements() -> dict[str, dict[str, dict[str, str]]]:
+    """Load supplements.json, returning the per-book additions. Strip
+    out the `_meta` field — it's documentation, not data."""
+    path = JSON_DIR / SUPPLEMENTS_FILENAME
+    if not path.is_file():
+        return {}
+    with path.open("r", encoding="utf-8") as fp:
+        raw = json.load(fp)
+    return {k: v for k, v in raw.items() if not k.startswith("_") and isinstance(v, dict)}
+
+
+def merge_supplements(
+    base: dict[str, dict[str, str]],
+    extra: dict[str, dict[str, str]] | None,
+    book_label: str,
+) -> int:
+    """Insert any verse from `extra` whose (chapter, verse) isn't
+    already in `base`. Mutates base in place. Returns the number of
+    verses added — useful for the rebuild log so a maintainer can spot
+    silently-applied supplements.
+    """
+    if not extra:
+        return 0
+    added = 0
+    for chap, verses in extra.items():
+        if not isinstance(verses, dict):
+            continue
+        bucket = base.setdefault(chap, {})
+        for v_num, text in verses.items():
+            if v_num in bucket:
+                continue
+            if not isinstance(text, str) or not text.strip():
+                continue
+            bucket[v_num] = text
+            added += 1
+    if added:
+        print(f"  {book_label}: applied {added} supplemental verse{'s' if added != 1 else ''}")
+    return added
+
+
 def ingest_book(
     conn: sqlite3.Connection,
     book_id: int,
     translation_id: int,
     json_path: Path,
+    supplement: dict[str, dict[str, str]] | None,
+    book_label: str,
 ) -> int:
     """Insert verses for one book. Returns the count inserted. Idempotent:
     deletes any prior rows for (book, translation) before inserting so
@@ -134,6 +182,8 @@ def ingest_book(
         raise SystemExit(f"Missing source JSON: {json_path}")
     with json_path.open("r", encoding="utf-8") as fp:
         data: dict[str, dict[str, str]] = json.load(fp)
+
+    merge_supplements(data, supplement, book_label)
 
     conn.execute(
         "DELETE FROM verses_fts WHERE book_id = ? AND translation_id = ?",
@@ -196,11 +246,19 @@ def ingest(db_path: Path) -> None:
 
         translation_id = upsert_translation(conn)
         book_ids = upsert_books(conn)
+        supplements = load_supplements()
 
         total = 0
         for json_name, abbrev, full_name, _genre in PSEUDEPIGRAPHA_BOOKS:
             json_path = JSON_DIR / json_name
-            count = ingest_book(conn, book_ids[abbrev], translation_id, json_path)
+            count = ingest_book(
+                conn,
+                book_ids[abbrev],
+                translation_id,
+                json_path,
+                supplements.get(abbrev),
+                full_name,
+            )
             print(f"  {full_name}: inserted {count:,} verses")
             total += count
 

@@ -294,8 +294,37 @@ fn backfill_data_from_bundle(db: &Database) {
     // the new "Pseudepigrapha (Public Domain)" translation row and
     // their verses.
     let needs_pseudepigrapha = count("SELECT COUNT(*) FROM books WHERE genre = 'Pseudepigrapha'") == 0;
+    // A user-DB may already have the books + most verses but be
+    // missing later supplements (e.g. 1 Enoch 91:14 was scraped as
+    // absent in 0.1.14 and restored from a printed edition in 0.1.15).
+    // The bundle's pseudepigrapha verse count is the source of truth —
+    // when it exceeds the user's, run the per-verse top-up even if
+    // the books themselves are already present.
+    let bundle_pseudepig_verse_count: i64 = rusqlite::Connection::open_with_flags(
+        &bundle,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .ok()
+    .and_then(|c| {
+        c.query_row(
+            "SELECT COUNT(*) FROM verses v JOIN books b ON b.id = v.book_id WHERE b.genre = 'Pseudepigrapha'",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .ok()
+    })
+    .unwrap_or(0);
+    let user_pseudepig_verse_count = count(
+        "SELECT COUNT(*) FROM verses v JOIN books b ON b.id = v.book_id WHERE b.genre = 'Pseudepigrapha'",
+    );
+    let needs_pseudepig_verse_topup =
+        bundle_pseudepig_verse_count > user_pseudepig_verse_count;
 
-    if !needs_alignment && !needs_strongs_index && !needs_pseudepigrapha {
+    if !needs_alignment
+        && !needs_strongs_index
+        && !needs_pseudepigrapha
+        && !needs_pseudepig_verse_topup
+    {
         return;
     }
 
@@ -354,9 +383,10 @@ fn backfill_data_from_bundle(db: &Database) {
     }
 
     if needs_pseudepigrapha {
-        // 1) Add the PSEUDO translation row if missing. INSERT OR IGNORE
-        //    guards against the unlikely case the user already has a row
-        //    under that abbreviation.
+        // First-time pseudepigrapha install: add the translation row
+        // and the three book rows. Verse + FTS top-up below handles
+        // the actual content for both this case and the
+        // already-installed-but-missing-supplements case.
         if let Err(e) = conn.execute(
             "INSERT OR IGNORE INTO translations (name, abbreviation, language, source_url, notes)
              SELECT name, abbreviation, language, source_url, notes
@@ -366,8 +396,8 @@ fn backfill_data_from_bundle(db: &Database) {
             error!("backfill PSEUDO translation failed: {}", e);
         }
 
-        // 2) Add the three pseudepigrapha books. Use bundle's
-        //    order_index as-is; not unique, just affects sort order.
+        // Use the bundle's order_index as-is. Not unique-constrained,
+        // just affects sort order in the sidebar.
         match conn.execute(
             "INSERT INTO books (abbreviation, full_name, testament, genre, order_index)
              SELECT bb.abbreviation, bb.full_name, bb.testament, bb.genre, bb.order_index
@@ -382,9 +412,14 @@ fn backfill_data_from_bundle(db: &Database) {
             Ok(n) => info!("Backfilled {} pseudepigrapha book rows from bundle", n),
             Err(e) => error!("backfill pseudepigrapha books failed: {}", e),
         }
+    }
 
-        // 3) Copy the verses. Join on bundle book/translation
-        //    abbreviations -> user IDs so verse_ids don't have to line up.
+    if needs_pseudepigrapha || needs_pseudepig_verse_topup {
+        // Verse top-up: insert any (book, chapter, verse_num,
+        // translation) tuple from bundle that's missing in main.
+        // Join on bundle book/translation abbreviations -> user IDs so
+        // verse_ids don't have to line up. The NOT EXISTS guard makes
+        // this idempotent and cheap when nothing needs adding.
         match conn.execute(
             "INSERT INTO verses (book_id, chapter, verse_num, translation_id, text)
              SELECT user_b.id, bv.chapter, bv.verse_num, user_t.id, bv.text
@@ -407,9 +442,8 @@ fn backfill_data_from_bundle(db: &Database) {
             Err(e) => error!("backfill pseudepigrapha verses failed: {}", e),
         }
 
-        // 4) Re-populate verses_fts for the new rows so search picks
-        //    them up. The FTS index is a separate table — verses
-        //    inserted in step 3 don't propagate automatically.
+        // FTS top-up. The index is a separate table; rows inserted
+        // above don't propagate automatically.
         match conn.execute(
             "INSERT INTO verses_fts (verse_id, book_id, chapter, verse_num, text, translation_id)
              SELECT v.id, v.book_id, v.chapter, v.verse_num, v.text, v.translation_id

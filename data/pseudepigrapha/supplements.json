@@ -1,0 +1,11 @@
+{
+  "_meta": {
+    "purpose": "Fills in verses that are absent from the scraped pseudepigrapha.com transcriptions but present in printed Charles 1917 / 1913 / Morfill 1896 editions. Applied by ingest_pseudepigrapha.py only where the base JSON has no entry for that chapter+verse — never overrides existing text.",
+    "format": "Same shape as the scraped per-book JSONs: { book_abbreviation: { chapter: { verse: text } } }. Book abbreviations match those in ingest_pseudepigrapha.py's PSEUDEPIGRAPHA_BOOKS list."
+  },
+  "1En": {
+    "91": {
+      "14": "And after that, in the ninth week, The righteous judgement shall be revealed to the whole world, And all the works of the godless shall vanish from all the earth, And the world shall be written down for destruction. And all mankind shall look to the path of uprightness."
+    }
+  }
+}
